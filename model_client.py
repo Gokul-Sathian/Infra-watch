@@ -39,26 +39,30 @@ def _get_client() -> genai.Client:
 
 
 def call_model(system, messages, tools=ALL_TOOLS, model=DEFAULT_MODEL):
-    """Run one Gemini generate_content call.
+    """Run one Gemini generate_content call and return the raw response.
 
     system: system instruction string.
-    messages: list of {"role": "user"|"model", "content": str} dicts.
+    messages: list of Gemini Content entries, e.g.
+        {"role": "user", "parts": [{"text": "..."}]},
+        {"role": "user", "parts": [{"function_response": {...}}]}, or a
+        previous response's `candidate.content` passed straight through
+        (its role is already "model"). Callers own the conversation
+        history so multi-turn tool calling can be layered on top.
     tools: function-calling tool definitions, registered by default so
         every call has access to check_device_status. Pass None/[] to
         call without tools.
     model: model id, defaults to DEFAULT_MODEL.
+
+    Returns the full GenerateContentResponse — inspect
+    `response.candidates[0].content.parts` for function_call parts, or
+    `response.text` when the model answered directly.
     """
-    contents = [
-        {"role": m["role"], "parts": [{"text": m["content"]}]}
-        for m in messages
-    ]
     config = {"system_instruction": system}
     if tools:
         config["tools"] = tools
 
-    response = _get_client().models.generate_content(
+    return _get_client().models.generate_content(
         model=model,
-        contents=contents,
+        contents=messages,
         config=config,
     )
-    return response.text

@@ -1,13 +1,17 @@
-from model_client import call_model
-from prompts.system_prompt import SYSTEM_PROMPT
+from agent import run_agent_loop
+
+INVENTORY_PROMPT = """Here is today's device inventory. Run a check cycle and report status.
+
+[
+  {"name": "core-switch-1", "host": "192.168.1.1", "type": "switch"},
+  {"name": "server-room-ap", "host": "192.168.1.5", "type": "access_point"},
+  {"name": "nas-01", "host": "192.168.1.20", "type": "server"}
+]
+"""
 
 
 def main():
-    reply = call_model(
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": "Say hello and name the model you are."}],
-    )
-    print(reply)
+    run_agent_loop(INVENTORY_PROMPT)
 
 
 if __name__ == "__main__":
