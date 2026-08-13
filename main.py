@@ -5,7 +5,7 @@ from prompts.system_prompt import SYSTEM_PROMPT
 def main():
     reply = call_model(
         system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": "Are you online? Reply in one sentence."}],
+        messages=[{"role": "user", "content": "Say hello and name the model you are."}],
     )
     print(reply)
 
