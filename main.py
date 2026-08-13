@@ -26,9 +26,13 @@ _status_lock = threading.Lock()
 _latest_status = []
 
 
-def run_check_cycle():
+def run_check_cycle(inventory=None):
     """One full sweep of the inventory via check_device_status, then stop
     — never loops back over a device a second time within the same cycle.
+
+    inventory defaults to the module-level INVENTORY; callers (e.g. the
+    eval harness) can pass a different device list through the same
+    logic without duplicating it.
 
     Uses check_device_status_with_retries so a device whose check errors
     outright gets up to 3 attempts before the cycle gives up on it and
@@ -41,9 +45,12 @@ def run_check_cycle():
     applied anyway, as the single canonical guardrail shared with the
     chat path, even though it's a no-op here by construction.
     """
+    if inventory is None:
+        inventory = INVENTORY
+
     results = []
     verified_status = {}
-    for device in INVENTORY:
+    for device in inventory:
         check = check_device_status_with_retries(device["host"])
         verified_status[device["host"]] = check["status"]
         results.append(
