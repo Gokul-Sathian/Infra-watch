@@ -1,0 +1,497 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>infra-watch</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #14161a; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  #scene { position: fixed; inset: 0; }
+
+  #panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    height: 100%;
+    width: 300px;
+    background: #1d2026;
+    color: #e6e8eb;
+    box-shadow: -2px 0 12px rgba(0,0,0,0.4);
+    transform: translateX(100%);
+    transition: transform 0.2s ease-out;
+    padding: 20px;
+    box-sizing: border-box;
+    z-index: 10;
+  }
+  #panel.open { transform: translateX(0); }
+  #panel h2 { margin: 0 0 16px; font-size: 18px; }
+  #panel .row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #2b2f37; font-size: 13px; }
+  #panel .label { color: #9aa1ac; }
+  #panel .value { font-weight: 600; }
+  #panel .status-up { color: #3ddc84; }
+  #panel .status-down { color: #ff5c5c; }
+  #panel .status-unknown { color: #9aa1ac; }
+  #panel-close { position: absolute; top: 14px; right: 16px; cursor: pointer; color: #9aa1ac; background: none; border: none; font-size: 16px; }
+
+  #hint {
+    position: fixed;
+    top: 16px;
+    left: 16px;
+    color: #6b7280;
+    font-size: 12px;
+    z-index: 5;
+  }
+
+  #chat-bar {
+    position: fixed;
+    left: 50%;
+    bottom: 0;
+    transform: translateX(-50%);
+    width: 360px;
+    height: 44px;
+    background: #1d2026;
+    border: 1px solid #2b2f37;
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    color: #e6e8eb;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    z-index: 20;
+    user-select: none;
+  }
+  #chat-bar .dot { width: 8px; height: 8px; border-radius: 50%; background: #3ddc84; }
+
+  #chat-box {
+    position: fixed;
+    left: 50%;
+    bottom: 44px;
+    transform: translateX(-50%);
+    width: 360px;
+    height: 380px;
+    background: #1d2026;
+    border: 1px solid #2b2f37;
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    box-shadow: 0 -4px 16px rgba(0,0,0,0.4);
+    color: #e6e8eb;
+    display: flex;
+    flex-direction: column;
+    z-index: 19;
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    transition: max-height 0.2s ease-out, opacity 0.15s ease-out;
+  }
+  #chat-box.open { max-height: 380px; opacity: 1; }
+
+  #chat-history {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+    font-size: 13px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  #chat-history .msg { max-width: 85%; padding: 6px 10px; border-radius: 10px; line-height: 1.4; }
+  #chat-history .msg.user { align-self: flex-end; background: #2b6ef2; color: #fff; }
+  #chat-history .msg.agent { align-self: flex-start; background: #2b2f37; color: #e6e8eb; }
+  #chat-history .msg.pending { opacity: 0.6; font-style: italic; }
+
+  #chat-form {
+    display: flex;
+    gap: 6px;
+    padding: 10px;
+    border-top: 1px solid #2b2f37;
+  }
+  #chat-input {
+    flex: 1;
+    background: #14161a;
+    border: 1px solid #2b2f37;
+    border-radius: 6px;
+    padding: 8px 10px;
+    color: #e6e8eb;
+    font-size: 13px;
+  }
+  #chat-input:focus { outline: none; border-color: #2b6ef2; }
+  #chat-send {
+    background: #2b6ef2;
+    border: none;
+    border-radius: 6px;
+    color: #fff;
+    padding: 8px 14px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  #chat-send:disabled { opacity: 0.5; cursor: default; }
+</style>
+</head>
+<body>
+  <div id="hint">infra-watch — click a device for details</div>
+  <div id="scene"></div>
+
+  <div id="panel">
+    <button id="panel-close">✕</button>
+    <h2 id="panel-name">—</h2>
+    <div class="row"><span class="label">Host</span><span class="value" id="panel-host">—</span></div>
+    <div class="row"><span class="label">Status</span><span class="value" id="panel-status">—</span></div>
+    <div class="row"><span class="label">Latency</span><span class="value" id="panel-latency">—</span></div>
+    <div class="row"><span class="label">Last checked</span><span class="value" id="panel-last-checked">—</span></div>
+    <div class="row"><span class="label">Severity</span><span class="value" id="panel-severity">—</span></div>
+  </div>
+
+  <div id="chat-box">
+    <div id="chat-history"></div>
+    <form id="chat-form">
+      <input id="chat-input" type="text" placeholder="Ask infra-watch..." autocomplete="off" />
+      <button id="chat-send" type="submit">Send</button>
+    </form>
+  </div>
+  <div id="chat-bar"><span class="dot"></span>infra-watch</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from "three";
+
+const STATUS_COLOR = {
+  up: 0x3ddc84,
+  down: 0xff5c5c,
+  unknown: 0x6b6f76,
+};
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x14161a);
+
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+camera.position.set(0, 4.4, 15.5);
+camera.lookAt(0, 0.1, 0);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(window.devicePixelRatio);
+document.getElementById("scene").appendChild(renderer.domElement);
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+const keyLight = new THREE.DirectionalLight(0xffffff, 1.0);
+keyLight.position.set(5, 8, 6);
+scene.add(keyLight);
+
+const floor = new THREE.Mesh(
+  new THREE.PlaneGeometry(60, 60),
+  new THREE.MeshStandardMaterial({ color: 0x1b1e24 })
+);
+floor.rotation.x = -Math.PI / 2;
+floor.position.y = -0.01;
+scene.add(floor);
+
+window.addEventListener("resize", () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// A 1U rack switch: a wide, thin, shallow black chassis (~10:1 width:height)
+// with a recessed lighter-gray panel carrying a row of flat square port
+// LEDs, plus one distinct square LED near the left edge for overall status.
+const CHASSIS_WIDTH = 4.2, CHASSIS_HEIGHT = 0.42, CHASSIS_DEPTH = 1.3;
+const PANEL_WIDTH = CHASSIS_WIDTH * 0.58, PANEL_HEIGHT = CHASSIS_HEIGHT * 0.55;
+const PANEL_X = CHASSIS_WIDTH * 0.12;
+const OVERALL_LED_X = -CHASSIS_WIDTH / 2 + 0.28;
+const PORT_LED_COUNT = 4;
+const DEVICE_SPACING = CHASSIS_WIDTH + 1.0;
+
+const chassisGeometry = new THREE.BoxGeometry(CHASSIS_WIDTH, CHASSIS_HEIGHT, CHASSIS_DEPTH);
+const chassisMaterialBase = { color: 0x0c0c0e, roughness: 0.75, metalness: 0.2 };
+
+const panelGeometry = new THREE.BoxGeometry(PANEL_WIDTH, PANEL_HEIGHT, 0.02);
+const panelMaterialBase = { color: 0x53565e, roughness: 0.55, metalness: 0.15 };
+
+const ledGeometry = new THREE.BoxGeometry(0.09, 0.09, 0.015);
+const overallLedGeometry = new THREE.BoxGeometry(0.16, 0.16, 0.02);
+
+const raycaster = new THREE.Raycaster();
+const pointer = new THREE.Vector2();
+
+// device.name -> { group, chassisMesh, panelMesh, overallLed: {mesh, material}, portLeds: [{mesh, material}], label, data }
+const devices = new Map();
+let clock = new THREE.Clock();
+
+function buildDevice(name, index, total) {
+  const startX = -((total - 1) * DEVICE_SPACING) / 2;
+
+  const group = new THREE.Group();
+  group.position.set(startX + index * DEVICE_SPACING, CHASSIS_HEIGHT / 2, 0);
+
+  const chassisMaterial = new THREE.MeshStandardMaterial(chassisMaterialBase);
+  const chassisMesh = new THREE.Mesh(chassisGeometry, chassisMaterial);
+  chassisMesh.userData.deviceName = name;
+  group.add(chassisMesh);
+
+  const panelMaterial = new THREE.MeshStandardMaterial(panelMaterialBase);
+  const panelMesh = new THREE.Mesh(panelGeometry, panelMaterial);
+  panelMesh.position.set(PANEL_X, 0, CHASSIS_DEPTH / 2 + 0.005);
+  panelMesh.userData.deviceName = name;
+  group.add(panelMesh);
+
+  // Decorative row of port-style LEDs — no per-port data exists, so these
+  // stay a fixed dim color; only the overall LED encodes real status.
+  const portLeds = [];
+  const portRowWidth = PANEL_WIDTH * 0.7;
+  const portStartX = PANEL_X - portRowWidth / 2;
+  for (let i = 0; i < PORT_LED_COUNT; i++) {
+    const portMaterial = new THREE.MeshStandardMaterial({
+      color: 0x2c2f34,
+      emissive: 0x000000,
+      roughness: 0.4,
+      metalness: 0.3,
+    });
+    const port = new THREE.Mesh(ledGeometry, portMaterial);
+    const portX = portStartX + (i * portRowWidth) / (PORT_LED_COUNT - 1);
+    port.position.set(portX, 0, CHASSIS_DEPTH / 2 + 0.015);
+    port.userData.deviceName = name;
+    group.add(port);
+    portLeds.push({ mesh: port, material: portMaterial });
+  }
+
+  const overallLedMaterial = new THREE.MeshStandardMaterial({
+    color: STATUS_COLOR.unknown,
+    emissive: 0x000000,
+    emissiveIntensity: 0,
+    transparent: true,
+    opacity: 1,
+    roughness: 0.3,
+    metalness: 0.1,
+  });
+  const overallLedMesh = new THREE.Mesh(overallLedGeometry, overallLedMaterial);
+  overallLedMesh.position.set(OVERALL_LED_X, 0, CHASSIS_DEPTH / 2 + 0.02);
+  overallLedMesh.userData.deviceName = name;
+  group.add(overallLedMesh);
+
+  const label = makeLabelSprite(name);
+  label.position.set(0, CHASSIS_HEIGHT / 2 + 0.35, 0);
+  group.add(label);
+
+  scene.add(group);
+  return {
+    group,
+    chassisMesh,
+    panelMesh,
+    overallLed: { mesh: overallLedMesh, material: overallLedMaterial },
+    portLeds,
+    label,
+  };
+}
+
+function makeLabelSprite(text) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 256;
+  canvas.height = 64;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "rgba(0,0,0,0)";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.font = "28px sans-serif";
+  ctx.fillStyle = "#e6e8eb";
+  ctx.textAlign = "center";
+  ctx.fillText(text, canvas.width / 2, canvas.height / 2 + 10);
+  const texture = new THREE.CanvasTexture(canvas);
+  const material = new THREE.SpriteMaterial({ map: texture, transparent: true });
+  const sprite = new THREE.Sprite(material);
+  sprite.scale.set(1.6, 0.4, 1);
+  return sprite;
+}
+
+function applyStatusColor(entry, status) {
+  const color = STATUS_COLOR[status] ?? STATUS_COLOR.unknown;
+  const material = entry.overallLed.material;
+  material.color.setHex(color);
+  if (status === "unknown") {
+    // Dim, static gray — no glow, no animation.
+    material.emissive.setHex(0x000000);
+    material.emissiveIntensity = 0;
+    material.opacity = 1;
+  }
+}
+
+function updateDevices(reports) {
+  const names = reports.map((r) => r.name);
+
+  reports.forEach((report, index) => {
+    let entry = devices.get(report.name);
+    if (!entry) {
+      entry = buildDevice(report.name, index, reports.length);
+      devices.set(report.name, entry);
+    }
+    entry.data = report;
+    applyStatusColor(entry, report.status);
+  });
+
+  // Drop devices no longer present in the inventory.
+  for (const [name, entry] of devices) {
+    if (!names.includes(name)) {
+      scene.remove(entry.group);
+      devices.delete(name);
+    }
+  }
+
+  if (selectedDevice && devices.has(selectedDevice)) {
+    showPanel(devices.get(selectedDevice).data);
+  }
+}
+
+async function pollStatus() {
+  try {
+    const res = await fetch("/status");
+    const reports = await res.json();
+    updateDevices(reports);
+  } catch (err) {
+    console.error("failed to fetch /status", err);
+  }
+}
+
+pollStatus();
+setInterval(pollStatus, 5000);
+
+// --- click handling / side panel ---
+
+let selectedDevice = null;
+const panel = document.getElementById("panel");
+document.getElementById("panel-close").addEventListener("click", () => {
+  panel.classList.remove("open");
+  selectedDevice = null;
+});
+
+function showPanel(data) {
+  document.getElementById("panel-name").textContent = data.name;
+  document.getElementById("panel-host").textContent = data.host;
+
+  const statusEl = document.getElementById("panel-status");
+  statusEl.textContent = data.status;
+  statusEl.className = "value status-" + data.status;
+
+  document.getElementById("panel-latency").textContent =
+    data.latency_ms == null ? "—" : `${data.latency_ms} ms`;
+  document.getElementById("panel-last-checked").textContent = data.last_checked;
+  document.getElementById("panel-severity").textContent = data.severity;
+
+  panel.classList.add("open");
+}
+
+renderer.domElement.addEventListener("click", (event) => {
+  const rect = renderer.domElement.getBoundingClientRect();
+  pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+  raycaster.setFromCamera(pointer, camera);
+  const hits = raycaster.intersectObjects(
+    Array.from(devices.values()).flatMap((e) => [
+      e.chassisMesh,
+      e.panelMesh,
+      e.overallLed.mesh,
+      ...e.portLeds.map((p) => p.mesh),
+    ])
+  );
+  if (hits.length > 0) {
+    const name = hits[0].object.userData.deviceName;
+    const entry = devices.get(name);
+    if (entry) {
+      selectedDevice = name;
+      showPanel(entry.data);
+    }
+  }
+});
+
+// --- animation loop: soft pulse on "up", hard blink on "down", static "unknown" ---
+
+function animate() {
+  requestAnimationFrame(animate);
+  const t = clock.getElapsedTime();
+
+  for (const entry of devices.values()) {
+    if (!entry.data) continue;
+    const status = entry.data.status;
+    const material = entry.overallLed.material;
+
+    if (status === "up") {
+      const wave = 0.5 + 0.5 * Math.sin(t * 2.2); // slow, soft cycle
+      material.emissive.setHex(STATUS_COLOR.up);
+      material.emissiveIntensity = 0.3 + 0.7 * wave;
+      material.opacity = 0.7 + 0.3 * wave;
+    } else if (status === "down") {
+      const on = Math.sin(t * 2.0) > 0; // hard on/off blink, slower
+      material.emissive.setHex(STATUS_COLOR.down);
+      material.emissiveIntensity = on ? 1.0 : 0.0;
+      material.opacity = on ? 1.0 : 0.35;
+    }
+    // "unknown" stays exactly as set in applyStatusColor — dim and static.
+  }
+
+  renderer.render(scene, camera);
+}
+
+animate();
+
+// --- chat bar ---
+
+const chatBar = document.getElementById("chat-bar");
+const chatBox = document.getElementById("chat-box");
+const chatHistory = document.getElementById("chat-history");
+const chatForm = document.getElementById("chat-form");
+const chatInput = document.getElementById("chat-input");
+const chatSend = document.getElementById("chat-send");
+
+chatBar.addEventListener("click", () => {
+  chatBox.classList.toggle("open");
+  if (chatBox.classList.contains("open")) chatInput.focus();
+});
+
+function appendMessage(text, role) {
+  const el = document.createElement("div");
+  el.className = `msg ${role}`;
+  el.textContent = text;
+  chatHistory.appendChild(el);
+  chatHistory.scrollTop = chatHistory.scrollHeight;
+  return el;
+}
+
+chatForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const message = chatInput.value.trim();
+  if (!message) return;
+
+  appendMessage(message, "user");
+  chatInput.value = "";
+  chatInput.disabled = true;
+  chatSend.disabled = true;
+  const pending = appendMessage("...", "agent pending");
+
+  try {
+    const res = await fetch("/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message }),
+    });
+    const data = await res.json();
+    pending.textContent = data.reply;
+    pending.classList.remove("pending");
+  } catch (err) {
+    pending.textContent = "Sorry, I couldn't reach the server.";
+    pending.classList.remove("pending");
+  } finally {
+    chatInput.disabled = false;
+    chatSend.disabled = false;
+    chatInput.focus();
+  }
+});
+</script>
+</body>
+</html>
