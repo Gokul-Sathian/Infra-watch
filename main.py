@@ -88,6 +88,13 @@ class ChatRequest(BaseModel):
     message: str
 
 
+# Single global chat session, in-memory only (per-process, lost on
+# restart) — fine for one local user. A real multi-user deployment would
+# key this dict by a session id from the request instead.
+_chat_lock = threading.Lock()
+_chat_history = []
+
+
 @app.post("/chat")
 def chat(request: ChatRequest):
     with _status_lock:
@@ -97,5 +104,7 @@ def chat(request: ChatRequest):
         f"{current_status}\n\n"
         f"User question: {request.message}"
     )
-    reply = run_agent_loop(prompt)
+    with _chat_lock:
+        reply, updated_history = run_agent_loop(prompt, history=_chat_history)
+        _chat_history[:] = updated_history
     return {"reply": reply}

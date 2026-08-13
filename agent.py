@@ -8,13 +8,19 @@ from tools import TOOL_FUNCTIONS
 MAX_TURNS = 10
 
 
-def run_agent_loop(user_prompt, max_turns=MAX_TURNS):
-    """Run the agent loop on one user prompt and return the final answer.
+def run_agent_loop(user_prompt, history=None, max_turns=MAX_TURNS):
+    """Run the agent loop on one user prompt and return (answer, history).
+
+    history: prior conversation as a list of Gemini Content entries (as
+        returned by a previous call to this function). Pass it back in on
+        the next call so a follow-up question can refer to earlier turns.
+        Defaults to a fresh conversation.
 
     Prints a log line for each turn: any model reasoning text, each tool
     call the model requested, and that tool's result.
     """
-    messages = [{"role": "user", "parts": [{"text": user_prompt}]}]
+    messages = list(history) if history else []
+    messages.append({"role": "user", "parts": [{"text": user_prompt}]})
 
     for turn in range(1, max_turns + 1):
         response = call_model(system=SYSTEM_PROMPT, messages=messages)
@@ -31,7 +37,7 @@ def run_agent_loop(user_prompt, max_turns=MAX_TURNS):
         if not function_calls:
             final_answer = response.text
             print(f"[turn {turn}] model final answer:\n{final_answer}")
-            return final_answer
+            return final_answer, messages
 
         response_parts = []
         for call in function_calls:
