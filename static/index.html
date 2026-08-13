@@ -166,32 +166,32 @@ import * as THREE from "three";
 const STATUS_COLOR = {
   up: 0x3ddc84,
   down: 0xff5c5c,
-  unknown: 0x8a8f98,
+  unknown: 0x6b6f76,
 };
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x14161a);
 
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
-camera.position.set(0, 3, 10);
-camera.lookAt(0, 0, 0);
+camera.position.set(0, 4.4, 15.5);
+camera.lookAt(0, 0.1, 0);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(window.devicePixelRatio);
 document.getElementById("scene").appendChild(renderer.domElement);
 
-scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-const keyLight = new THREE.DirectionalLight(0xffffff, 0.8);
+scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+const keyLight = new THREE.DirectionalLight(0xffffff, 1.0);
 keyLight.position.set(5, 8, 6);
 scene.add(keyLight);
 
 const floor = new THREE.Mesh(
-  new THREE.PlaneGeometry(40, 40),
+  new THREE.PlaneGeometry(60, 60),
   new THREE.MeshStandardMaterial({ color: 0x1b1e24 })
 );
 floor.rotation.x = -Math.PI / 2;
-floor.position.y = -0.751;
+floor.position.y = -0.01;
 scene.add(floor);
 
 window.addEventListener("resize", () => {
@@ -200,52 +200,96 @@ window.addEventListener("resize", () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-const BOX_WIDTH = 1.6, BOX_HEIGHT = 1, BOX_DEPTH = 0.8;
-const boxGeometry = new THREE.BoxGeometry(BOX_WIDTH, BOX_HEIGHT, BOX_DEPTH);
-const boxMaterialBase = { color: 0x2b2f37, roughness: 0.6, metalness: 0.1 };
+// A 1U rack switch: a wide, thin, shallow black chassis (~10:1 width:height)
+// with a recessed lighter-gray panel carrying a row of flat square port
+// LEDs, plus one distinct square LED near the left edge for overall status.
+const CHASSIS_WIDTH = 4.2, CHASSIS_HEIGHT = 0.42, CHASSIS_DEPTH = 1.3;
+const PANEL_WIDTH = CHASSIS_WIDTH * 0.58, PANEL_HEIGHT = CHASSIS_HEIGHT * 0.55;
+const PANEL_X = CHASSIS_WIDTH * 0.12;
+const OVERALL_LED_X = -CHASSIS_WIDTH / 2 + 0.28;
+const PORT_LED_COUNT = 4;
+const DEVICE_SPACING = CHASSIS_WIDTH + 1.0;
+
+const chassisGeometry = new THREE.BoxGeometry(CHASSIS_WIDTH, CHASSIS_HEIGHT, CHASSIS_DEPTH);
+const chassisMaterialBase = { color: 0x0c0c0e, roughness: 0.75, metalness: 0.2 };
+
+const panelGeometry = new THREE.BoxGeometry(PANEL_WIDTH, PANEL_HEIGHT, 0.02);
+const panelMaterialBase = { color: 0x53565e, roughness: 0.55, metalness: 0.15 };
+
+const ledGeometry = new THREE.BoxGeometry(0.09, 0.09, 0.015);
+const overallLedGeometry = new THREE.BoxGeometry(0.16, 0.16, 0.02);
 
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
 
-// device.name -> { group, boxMesh, ports: [{ mesh, material }], data }
+// device.name -> { group, chassisMesh, panelMesh, overallLed: {mesh, material}, portLeds: [{mesh, material}], label, data }
 const devices = new Map();
 let clock = new THREE.Clock();
 
 function buildDevice(name, index, total) {
-  const spacing = 2.6;
-  const startX = -((total - 1) * spacing) / 2;
+  const startX = -((total - 1) * DEVICE_SPACING) / 2;
 
   const group = new THREE.Group();
-  group.position.set(startX + index * spacing, 0, 0);
+  group.position.set(startX + index * DEVICE_SPACING, CHASSIS_HEIGHT / 2, 0);
 
-  const boxMaterial = new THREE.MeshStandardMaterial(boxMaterialBase);
-  const box = new THREE.Mesh(boxGeometry, boxMaterial);
-  box.userData.deviceName = name;
-  group.add(box);
+  const chassisMaterial = new THREE.MeshStandardMaterial(chassisMaterialBase);
+  const chassisMesh = new THREE.Mesh(chassisGeometry, chassisMaterial);
+  chassisMesh.userData.deviceName = name;
+  group.add(chassisMesh);
 
-  const portCount = 3;
-  const portGeometry = new THREE.SphereGeometry(0.08, 16, 16);
-  const ports = [];
-  for (let i = 0; i < portCount; i++) {
+  const panelMaterial = new THREE.MeshStandardMaterial(panelMaterialBase);
+  const panelMesh = new THREE.Mesh(panelGeometry, panelMaterial);
+  panelMesh.position.set(PANEL_X, 0, CHASSIS_DEPTH / 2 + 0.005);
+  panelMesh.userData.deviceName = name;
+  group.add(panelMesh);
+
+  // Decorative row of port-style LEDs — no per-port data exists, so these
+  // stay a fixed dim color; only the overall LED encodes real status.
+  const portLeds = [];
+  const portRowWidth = PANEL_WIDTH * 0.7;
+  const portStartX = PANEL_X - portRowWidth / 2;
+  for (let i = 0; i < PORT_LED_COUNT; i++) {
     const portMaterial = new THREE.MeshStandardMaterial({
-      color: 0x555555,
+      color: 0x2c2f34,
       emissive: 0x000000,
-      emissiveIntensity: 1,
+      roughness: 0.4,
+      metalness: 0.3,
     });
-    const port = new THREE.Mesh(portGeometry, portMaterial);
-    const portX = -0.5 + i * 0.5;
-    port.position.set(portX, 0.15, BOX_DEPTH / 2 + 0.01);
+    const port = new THREE.Mesh(ledGeometry, portMaterial);
+    const portX = portStartX + (i * portRowWidth) / (PORT_LED_COUNT - 1);
+    port.position.set(portX, 0, CHASSIS_DEPTH / 2 + 0.015);
     port.userData.deviceName = name;
     group.add(port);
-    ports.push({ mesh: port, material: portMaterial });
+    portLeds.push({ mesh: port, material: portMaterial });
   }
 
+  const overallLedMaterial = new THREE.MeshStandardMaterial({
+    color: STATUS_COLOR.unknown,
+    emissive: 0x000000,
+    emissiveIntensity: 0,
+    transparent: true,
+    opacity: 1,
+    roughness: 0.3,
+    metalness: 0.1,
+  });
+  const overallLedMesh = new THREE.Mesh(overallLedGeometry, overallLedMaterial);
+  overallLedMesh.position.set(OVERALL_LED_X, 0, CHASSIS_DEPTH / 2 + 0.02);
+  overallLedMesh.userData.deviceName = name;
+  group.add(overallLedMesh);
+
   const label = makeLabelSprite(name);
-  label.position.set(0, BOX_HEIGHT / 2 + 0.45, 0);
+  label.position.set(0, CHASSIS_HEIGHT / 2 + 0.35, 0);
   group.add(label);
 
   scene.add(group);
-  return { group, boxMesh: box, boxMaterial, ports, label };
+  return {
+    group,
+    chassisMesh,
+    panelMesh,
+    overallLed: { mesh: overallLedMesh, material: overallLedMaterial },
+    portLeds,
+    label,
+  };
 }
 
 function makeLabelSprite(text) {
@@ -268,8 +312,14 @@ function makeLabelSprite(text) {
 
 function applyStatusColor(entry, status) {
   const color = STATUS_COLOR[status] ?? STATUS_COLOR.unknown;
-  entry.boxMaterial.color.setHex(color);
-  entry.ports.forEach((p) => p.material.color.setHex(color));
+  const material = entry.overallLed.material;
+  material.color.setHex(color);
+  if (status === "unknown") {
+    // Dim, static gray — no glow, no animation.
+    material.emissive.setHex(0x000000);
+    material.emissiveIntensity = 0;
+    material.opacity = 1;
+  }
 }
 
 function updateDevices(reports) {
@@ -343,7 +393,12 @@ renderer.domElement.addEventListener("click", (event) => {
 
   raycaster.setFromCamera(pointer, camera);
   const hits = raycaster.intersectObjects(
-    Array.from(devices.values()).flatMap((e) => [e.boxMesh, ...e.ports.map((p) => p.mesh)])
+    Array.from(devices.values()).flatMap((e) => [
+      e.chassisMesh,
+      e.panelMesh,
+      e.overallLed.mesh,
+      ...e.portLeds.map((p) => p.mesh),
+    ])
   );
   if (hits.length > 0) {
     const name = hits[0].object.userData.deviceName;
@@ -355,7 +410,7 @@ renderer.domElement.addEventListener("click", (event) => {
   }
 });
 
-// --- animation loop: pulse "up" ports, slow blink "down" ports ---
+// --- animation loop: soft pulse on "up", hard blink on "down", static "unknown" ---
 
 function animate() {
   requestAnimationFrame(animate);
@@ -364,18 +419,20 @@ function animate() {
   for (const entry of devices.values()) {
     if (!entry.data) continue;
     const status = entry.data.status;
-    entry.ports.forEach((p) => {
-      if (status === "up") {
-        p.material.emissive.setHex(STATUS_COLOR.up);
-        p.material.emissiveIntensity = 0.4 + 0.6 * (0.5 + 0.5 * Math.sin(t * 6));
-      } else if (status === "down") {
-        p.material.emissive.setHex(STATUS_COLOR.down);
-        p.material.emissiveIntensity = 0.5 + 0.5 * (0.5 + 0.5 * Math.sin(t * 1.2));
-      } else {
-        p.material.emissive.setHex(0x000000);
-        p.material.emissiveIntensity = 0;
-      }
-    });
+    const material = entry.overallLed.material;
+
+    if (status === "up") {
+      const wave = 0.5 + 0.5 * Math.sin(t * 2.2); // slow, soft cycle
+      material.emissive.setHex(STATUS_COLOR.up);
+      material.emissiveIntensity = 0.3 + 0.7 * wave;
+      material.opacity = 0.7 + 0.3 * wave;
+    } else if (status === "down") {
+      const on = Math.sin(t * 2.0) > 0; // hard on/off blink, slower
+      material.emissive.setHex(STATUS_COLOR.down);
+      material.emissiveIntensity = on ? 1.0 : 0.0;
+      material.opacity = on ? 1.0 : 0.35;
+    }
+    // "unknown" stays exactly as set in applyStatusColor — dim and static.
   }
 
   renderer.render(scene, camera);
