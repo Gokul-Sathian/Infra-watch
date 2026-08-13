@@ -77,3 +77,31 @@ def validate_device_status(result: dict) -> DeviceStatus:
         last_checked=last_checked,
         severity=severity,
     )
+
+
+def enforce_verified_up(reports: list, verified_status: dict) -> list:
+    """Guardrail: force any "up" claim to "unknown" unless it's backed by
+    a real check this cycle/turn.
+
+    reports: proposed DeviceStatus-shaped dicts (from a check cycle or a
+        model's structured answer) — not yet trusted.
+    verified_status: {host: status} built only from actual
+        check_device_status results gathered this cycle/turn — the ground
+        truth. A host absent from this dict was never checked at all.
+
+    A report is only left as "up" if verified_status confirms that exact
+    host as "up". Everything else claiming "up" — an unchecked host, or
+    one a real check reported down/unknown — is rewritten to "unknown"
+    with severity recomputed. Does not mutate the input; a "down" or
+    "unknown" claim always passes through unchanged (only "up" claims are
+    ever downgraded, never upgraded).
+    """
+    corrected = []
+    for report in reports:
+        report = dict(report)
+        if report.get("status") == "up" and verified_status.get(report.get("host")) != "up":
+            report["status"] = "unknown"
+            report["latency_ms"] = None
+            report["severity"] = "warning"
+        corrected.append(report)
+    return corrected

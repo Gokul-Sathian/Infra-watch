@@ -8,13 +8,15 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from agent import run_agent_loop
-from status import validate_device_status
-from tools import check_device_status
+from status import enforce_verified_up, validate_device_status
+from tools import check_device_status_with_retries
 
 INVENTORY = [
     {"name": "core-switch-1", "host": "192.168.1.1", "type": "switch"},
     {"name": "server-room-ap", "host": "192.168.1.5", "type": "access_point"},
     {"name": "nas-01", "host": "192.168.1.20", "type": "server"},
+    # Always errors (simulated) — exercises the retry-then-give-up stop rule.
+    {"name": "flaky-sensor", "host": "192.168.1.50", "type": "sensor"},
 ]
 
 CHECK_INTERVAL_SECONDS = 10
@@ -25,18 +27,26 @@ _latest_status = []
 
 
 def run_check_cycle():
-    """Check every inventory device via the check_device_status tool
-    directly (no LLM round-trip) and return validated DeviceStatus dicts.
+    """One full sweep of the inventory via check_device_status, then stop
+    — never loops back over a device a second time within the same cycle.
 
-    This is deliberately deterministic rather than routed through the
-    agent loop: it runs every 10 seconds and must never let a model
-    mistake (like the stray "none" severity value seen in Step 6) or
-    hallucination put an unverified device on the dashboard as "up".
+    Uses check_device_status_with_retries so a device whose check errors
+    outright gets up to 3 attempts before the cycle gives up on it and
+    moves to the next device, reporting "unknown" rather than guessing.
+
+    Deliberately deterministic rather than routed through the agent loop:
+    it runs every 10 seconds and must never let a model mistake (like the
+    stray "none" severity value seen in Step 6) or hallucination put an
+    unverified device on the dashboard as "up". enforce_verified_up is
+    applied anyway, as the single canonical guardrail shared with the
+    chat path, even though it's a no-op here by construction.
     """
     results = []
+    verified_status = {}
     for device in INVENTORY:
-        check = check_device_status(device["host"])
-        report = validate_device_status(
+        check = check_device_status_with_retries(device["host"])
+        verified_status[device["host"]] = check["status"]
+        results.append(
             {
                 "name": device["name"],
                 "host": device["host"],
@@ -46,8 +56,9 @@ def run_check_cycle():
                 "severity": _SEVERITY_FOR_STATUS[check["status"]],
             }
         )
-        results.append(report.to_dict())
-    return results
+
+    results = enforce_verified_up(results, verified_status)
+    return [validate_device_status(r).to_dict() for r in results]
 
 
 def _background_check_loop():
