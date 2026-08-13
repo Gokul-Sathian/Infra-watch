@@ -1,10 +1,290 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <title>infra-watch</title>
+<meta charset="utf-8" />
+<title>infra-watch</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #14161a; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  #scene { position: fixed; inset: 0; }
+
+  #panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    height: 100%;
+    width: 300px;
+    background: #1d2026;
+    color: #e6e8eb;
+    box-shadow: -2px 0 12px rgba(0,0,0,0.4);
+    transform: translateX(100%);
+    transition: transform 0.2s ease-out;
+    padding: 20px;
+    box-sizing: border-box;
+    z-index: 10;
+  }
+  #panel.open { transform: translateX(0); }
+  #panel h2 { margin: 0 0 16px; font-size: 18px; }
+  #panel .row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #2b2f37; font-size: 13px; }
+  #panel .label { color: #9aa1ac; }
+  #panel .value { font-weight: 600; }
+  #panel .status-up { color: #3ddc84; }
+  #panel .status-down { color: #ff5c5c; }
+  #panel .status-unknown { color: #9aa1ac; }
+  #panel-close { position: absolute; top: 14px; right: 16px; cursor: pointer; color: #9aa1ac; background: none; border: none; font-size: 16px; }
+
+  #hint {
+    position: fixed;
+    top: 16px;
+    left: 16px;
+    color: #6b7280;
+    font-size: 12px;
+    z-index: 5;
+  }
+</style>
 </head>
 <body>
-  <p>infra-watch backend is up. Dashboard UI lands in Step 8b.</p>
+  <div id="hint">infra-watch — click a device for details</div>
+  <div id="scene"></div>
+
+  <div id="panel">
+    <button id="panel-close">✕</button>
+    <h2 id="panel-name">—</h2>
+    <div class="row"><span class="label">Host</span><span class="value" id="panel-host">—</span></div>
+    <div class="row"><span class="label">Status</span><span class="value" id="panel-status">—</span></div>
+    <div class="row"><span class="label">Latency</span><span class="value" id="panel-latency">—</span></div>
+    <div class="row"><span class="label">Last checked</span><span class="value" id="panel-last-checked">—</span></div>
+    <div class="row"><span class="label">Severity</span><span class="value" id="panel-severity">—</span></div>
+  </div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from "three";
+
+const STATUS_COLOR = {
+  up: 0x3ddc84,
+  down: 0xff5c5c,
+  unknown: 0x8a8f98,
+};
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x14161a);
+
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+camera.position.set(0, 3, 10);
+camera.lookAt(0, 0, 0);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(window.devicePixelRatio);
+document.getElementById("scene").appendChild(renderer.domElement);
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+const keyLight = new THREE.DirectionalLight(0xffffff, 0.8);
+keyLight.position.set(5, 8, 6);
+scene.add(keyLight);
+
+const floor = new THREE.Mesh(
+  new THREE.PlaneGeometry(40, 40),
+  new THREE.MeshStandardMaterial({ color: 0x1b1e24 })
+);
+floor.rotation.x = -Math.PI / 2;
+floor.position.y = -0.751;
+scene.add(floor);
+
+window.addEventListener("resize", () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+const BOX_WIDTH = 1.6, BOX_HEIGHT = 1, BOX_DEPTH = 0.8;
+const boxGeometry = new THREE.BoxGeometry(BOX_WIDTH, BOX_HEIGHT, BOX_DEPTH);
+const boxMaterialBase = { color: 0x2b2f37, roughness: 0.6, metalness: 0.1 };
+
+const raycaster = new THREE.Raycaster();
+const pointer = new THREE.Vector2();
+
+// device.name -> { group, boxMesh, ports: [{ mesh, material }], data }
+const devices = new Map();
+let clock = new THREE.Clock();
+
+function buildDevice(name, index, total) {
+  const spacing = 2.6;
+  const startX = -((total - 1) * spacing) / 2;
+
+  const group = new THREE.Group();
+  group.position.set(startX + index * spacing, 0, 0);
+
+  const boxMaterial = new THREE.MeshStandardMaterial(boxMaterialBase);
+  const box = new THREE.Mesh(boxGeometry, boxMaterial);
+  box.userData.deviceName = name;
+  group.add(box);
+
+  const portCount = 3;
+  const portGeometry = new THREE.SphereGeometry(0.08, 16, 16);
+  const ports = [];
+  for (let i = 0; i < portCount; i++) {
+    const portMaterial = new THREE.MeshStandardMaterial({
+      color: 0x555555,
+      emissive: 0x000000,
+      emissiveIntensity: 1,
+    });
+    const port = new THREE.Mesh(portGeometry, portMaterial);
+    const portX = -0.5 + i * 0.5;
+    port.position.set(portX, 0.15, BOX_DEPTH / 2 + 0.01);
+    port.userData.deviceName = name;
+    group.add(port);
+    ports.push({ mesh: port, material: portMaterial });
+  }
+
+  const label = makeLabelSprite(name);
+  label.position.set(0, BOX_HEIGHT / 2 + 0.45, 0);
+  group.add(label);
+
+  scene.add(group);
+  return { group, boxMesh: box, boxMaterial, ports, label };
+}
+
+function makeLabelSprite(text) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 256;
+  canvas.height = 64;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "rgba(0,0,0,0)";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.font = "28px sans-serif";
+  ctx.fillStyle = "#e6e8eb";
+  ctx.textAlign = "center";
+  ctx.fillText(text, canvas.width / 2, canvas.height / 2 + 10);
+  const texture = new THREE.CanvasTexture(canvas);
+  const material = new THREE.SpriteMaterial({ map: texture, transparent: true });
+  const sprite = new THREE.Sprite(material);
+  sprite.scale.set(1.6, 0.4, 1);
+  return sprite;
+}
+
+function applyStatusColor(entry, status) {
+  const color = STATUS_COLOR[status] ?? STATUS_COLOR.unknown;
+  entry.boxMaterial.color.setHex(color);
+  entry.ports.forEach((p) => p.material.color.setHex(color));
+}
+
+function updateDevices(reports) {
+  const names = reports.map((r) => r.name);
+
+  reports.forEach((report, index) => {
+    let entry = devices.get(report.name);
+    if (!entry) {
+      entry = buildDevice(report.name, index, reports.length);
+      devices.set(report.name, entry);
+    }
+    entry.data = report;
+    applyStatusColor(entry, report.status);
+  });
+
+  // Drop devices no longer present in the inventory.
+  for (const [name, entry] of devices) {
+    if (!names.includes(name)) {
+      scene.remove(entry.group);
+      devices.delete(name);
+    }
+  }
+
+  if (selectedDevice && devices.has(selectedDevice)) {
+    showPanel(devices.get(selectedDevice).data);
+  }
+}
+
+async function pollStatus() {
+  try {
+    const res = await fetch("/status");
+    const reports = await res.json();
+    updateDevices(reports);
+  } catch (err) {
+    console.error("failed to fetch /status", err);
+  }
+}
+
+pollStatus();
+setInterval(pollStatus, 5000);
+
+// --- click handling / side panel ---
+
+let selectedDevice = null;
+const panel = document.getElementById("panel");
+document.getElementById("panel-close").addEventListener("click", () => {
+  panel.classList.remove("open");
+  selectedDevice = null;
+});
+
+function showPanel(data) {
+  document.getElementById("panel-name").textContent = data.name;
+  document.getElementById("panel-host").textContent = data.host;
+
+  const statusEl = document.getElementById("panel-status");
+  statusEl.textContent = data.status;
+  statusEl.className = "value status-" + data.status;
+
+  document.getElementById("panel-latency").textContent =
+    data.latency_ms == null ? "—" : `${data.latency_ms} ms`;
+  document.getElementById("panel-last-checked").textContent = data.last_checked;
+  document.getElementById("panel-severity").textContent = data.severity;
+
+  panel.classList.add("open");
+}
+
+renderer.domElement.addEventListener("click", (event) => {
+  const rect = renderer.domElement.getBoundingClientRect();
+  pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+  raycaster.setFromCamera(pointer, camera);
+  const hits = raycaster.intersectObjects(
+    Array.from(devices.values()).flatMap((e) => [e.boxMesh, ...e.ports.map((p) => p.mesh)])
+  );
+  if (hits.length > 0) {
+    const name = hits[0].object.userData.deviceName;
+    const entry = devices.get(name);
+    if (entry) {
+      selectedDevice = name;
+      showPanel(entry.data);
+    }
+  }
+});
+
+// --- animation loop: pulse "up" ports, slow blink "down" ports ---
+
+function animate() {
+  requestAnimationFrame(animate);
+  const t = clock.getElapsedTime();
+
+  for (const entry of devices.values()) {
+    if (!entry.data) continue;
+    const status = entry.data.status;
+    entry.ports.forEach((p) => {
+      if (status === "up") {
+        p.material.emissive.setHex(STATUS_COLOR.up);
+        p.material.emissiveIntensity = 0.4 + 0.6 * (0.5 + 0.5 * Math.sin(t * 6));
+      } else if (status === "down") {
+        p.material.emissive.setHex(STATUS_COLOR.down);
+        p.material.emissiveIntensity = 0.5 + 0.5 * (0.5 + 0.5 * Math.sin(t * 1.2));
+      } else {
+        p.material.emissive.setHex(0x000000);
+        p.material.emissiveIntensity = 0;
+      }
+    });
+  }
+
+  renderer.render(scene, camera);
+}
+
+animate();
+</script>
 </body>
 </html>
