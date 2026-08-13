@@ -9,6 +9,8 @@ from pathlib import Path
 
 from google import genai
 
+from tools import ALL_TOOLS
+
 DEFAULT_MODEL = "gemini-flash-latest"
 
 _ENV_PATH = Path(__file__).resolve().parent / ".env"
@@ -36,12 +38,14 @@ def _get_client() -> genai.Client:
     return _client
 
 
-def call_model(system, messages, tools=None, model=DEFAULT_MODEL):
+def call_model(system, messages, tools=ALL_TOOLS, model=DEFAULT_MODEL):
     """Run one Gemini generate_content call.
 
     system: system instruction string.
     messages: list of {"role": "user"|"model", "content": str} dicts.
-    tools: optional list of function-calling tool definitions.
+    tools: function-calling tool definitions, registered by default so
+        every call has access to check_device_status. Pass None/[] to
+        call without tools.
     model: model id, defaults to DEFAULT_MODEL.
     """
     contents = [
