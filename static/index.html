@@ -12,7 +12,7 @@
     top: 0;
     right: 0;
     height: 100%;
-    width: 300px;
+    width: 320px;
     background: #1d2026;
     color: #e6e8eb;
     box-shadow: -2px 0 12px rgba(0,0,0,0.4);
@@ -20,6 +20,7 @@
     transition: transform 0.2s ease-out;
     padding: 20px;
     box-sizing: border-box;
+    overflow-y: auto;
     z-index: 10;
   }
   #panel.open { transform: translateX(0); }
@@ -31,6 +32,46 @@
   #panel .status-down { color: #ff5c5c; }
   #panel .status-unknown { color: #9aa1ac; }
   #panel-close { position: absolute; top: 14px; right: 16px; cursor: pointer; color: #9aa1ac; background: none; border: none; font-size: 16px; }
+
+  #panel .ports-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 18px;
+    padding-bottom: 4px;
+    color: #9aa1ac;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  #panel .info-tip {
+    cursor: help;
+    color: #6b7280;
+    font-size: 12px;
+    border: 1px solid #3a3f47;
+    border-radius: 50%;
+    width: 14px;
+    height: 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+  }
+  #panel .port-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 5px 0;
+    border-bottom: 1px solid #24272e;
+    font-size: 12px;
+  }
+  #panel .port-label { display: flex; align-items: center; gap: 8px; color: #c3c7ce; }
+  #panel .port-dot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+  #panel .port-dot.status-up { background: #3ddc84; }
+  #panel .port-dot.status-down { background: #ff5c5c; }
+  #panel .port-dot.status-unknown { background: #6b6f76; }
+  #panel .port-status-text { font-weight: 600; }
+  #panel .ports-empty { color: #6b7280; font-size: 12px; padding: 6px 0; font-style: italic; }
 
   #hint {
     position: fixed;
@@ -142,6 +183,16 @@
     <div class="row"><span class="label">Latency</span><span class="value" id="panel-latency">—</span></div>
     <div class="row"><span class="label">Last checked</span><span class="value" id="panel-last-checked">—</span></div>
     <div class="row"><span class="label">Severity</span><span class="value" id="panel-severity">—</span></div>
+    <div class="row">
+      <span class="label">Port summary</span>
+      <span class="value" id="panel-port-summary">—</span>
+    </div>
+
+    <div class="ports-header">
+      Ports
+      <span class="info-tip" title="Simulated fixture data for now — not live SNMP data yet. Real per-port monitoring is planned as a later step.">ⓘ</span>
+    </div>
+    <div id="panel-ports-list"></div>
   </div>
 
   <div id="chat-box">
@@ -308,7 +359,19 @@ function aggregateMasterState(ports) {
   const upCount = ports.filter((p) => p.status === "up").length;
   if (upCount === ports.length) return "green-pulse";
   if (upCount === 0) return "red-hard-blink";
-  return "orange-steady";
+  return "orange-blink";
+}
+
+// "3 up / 1 down" / "All ports up" / "All ports down" / "Unknown" — the
+// same aggregation aggregateMasterState uses, phrased for the side panel.
+function summarizePorts(ports) {
+  if (!Array.isArray(ports) || ports.length === 0) return "Unknown";
+  if (ports.some((p) => p.status !== "up" && p.status !== "down")) return "Unknown";
+  const upCount = ports.filter((p) => p.status === "up").length;
+  const downCount = ports.length - upCount;
+  if (downCount === 0) return "All ports up";
+  if (upCount === 0) return "All ports down";
+  return `${upCount} up / ${downCount} down`;
 }
 
 function makeLabelSprite(text) {
@@ -389,6 +452,29 @@ function showPanel(data) {
   document.getElementById("panel-last-checked").textContent = data.last_checked;
   document.getElementById("panel-severity").textContent = data.severity;
 
+  const ports = data.ports || [];
+  document.getElementById("panel-port-summary").textContent = summarizePorts(ports);
+
+  const portsList = document.getElementById("panel-ports-list");
+  portsList.innerHTML = "";
+  if (ports.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "ports-empty";
+    empty.textContent = "No port data available yet.";
+    portsList.appendChild(empty);
+  } else {
+    ports.forEach((port) => {
+      const status = ["up", "down"].includes(port.status) ? port.status : "unknown";
+      const row = document.createElement("div");
+      row.className = "port-row";
+      row.innerHTML = `
+        <span class="port-label"><span class="port-dot status-${status}"></span>Port ${port.port}</span>
+        <span class="port-status-text status-${status}">${status}</span>
+      `;
+      portsList.appendChild(row);
+    });
+  }
+
   panel.classList.add("open");
 }
 
@@ -466,12 +552,18 @@ function animate() {
       case "red-hard-blink":
         setLedState(masterMaterial, t, "down");
         break;
-      case "orange-steady":
+      case "orange-blink": {
+        // Moderate blink: clearly a blink (not a smooth pulse like green),
+        // but slower and gentler than the red hard-blink — never fully
+        // dark, so a mixed-state device draws attention without reading
+        // as urgent as a full outage.
+        const on = Math.sin(t * 1.0) > 0; // half the blink rate of "down"
         masterMaterial.color.setHex(STATUS_COLOR.mixed);
         masterMaterial.emissive.setHex(STATUS_COLOR.mixed);
-        masterMaterial.emissiveIntensity = 0.5; // steady — no animation
-        masterMaterial.opacity = 1;
+        masterMaterial.emissiveIntensity = on ? 0.9 : 0.25;
+        masterMaterial.opacity = on ? 1.0 : 0.6;
         break;
+      }
       default: // gray
         setLedState(masterMaterial, t, "unknown");
     }
