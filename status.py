@@ -4,7 +4,7 @@ Every check result the agent produces must conform to DeviceStatus and pass
 validate_device_status before it reaches the dashboard or chat — so a
 device that couldn't be verified can never surface as "up".
 """
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Literal, Optional
 
 Status = Literal["up", "down", "unknown"]
@@ -23,6 +23,10 @@ class DeviceStatus:
     latency_ms: Optional[float]
     last_checked: str
     severity: Severity
+    # Simulated fixture data only, not real per-port telemetry — real
+    # per-port status requires SNMP polling (planned as a later step, see
+    # ROADMAP.md). Optional: [] means no per-port data for this device.
+    ports: list = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -69,6 +73,15 @@ def validate_device_status(result: dict) -> DeviceStatus:
     if not isinstance(last_checked, str) or not last_checked:
         raise InvalidDeviceStatus(f"last_checked must be a non-empty string, got {last_checked!r}")
 
+    ports = result.get("ports", [])
+    if not isinstance(ports, list):
+        raise InvalidDeviceStatus(f"ports must be a list, got {ports!r}")
+    for entry in ports:
+        if not isinstance(entry, dict) or "port" not in entry or "status" not in entry:
+            raise InvalidDeviceStatus(f"invalid port entry: {entry!r}, must be {{'port': ..., 'status': ...}}")
+        if entry["status"] not in VALID_STATUSES:
+            raise InvalidDeviceStatus(f"invalid port status: {entry['status']!r}, must be one of {VALID_STATUSES}")
+
     return DeviceStatus(
         name=name,
         host=host,
@@ -76,6 +89,7 @@ def validate_device_status(result: dict) -> DeviceStatus:
         latency_ms=latency_ms,
         last_checked=last_checked,
         severity=severity,
+        ports=ports,
     )
 
 
@@ -103,5 +117,6 @@ def enforce_verified_up(reports: list, verified_status: dict) -> list:
             report["status"] = "unknown"
             report["latency_ms"] = None
             report["severity"] = "warning"
+            report["ports"] = []  # the whole claim was unverified; its port data goes with it
         corrected.append(report)
     return corrected
