@@ -19,6 +19,16 @@ INVENTORY = [
     {"name": "flaky-sensor", "host": "192.168.1.50", "type": "sensor"},
 ]
 
+# Fixture/manually-defined network topology for now — NOT auto-discovered.
+# Real topology discovery via SNMP/LLDP is planned as a later step (see
+# ROADMAP.md). core-switch-1 is the hub; source_port is the port on the
+# source device that the target device is plugged into.
+CONNECTIONS = [
+    {"source": "core-switch-1", "source_port": 1, "target": "server-room-ap"},
+    {"source": "core-switch-1", "source_port": 2, "target": "nas-01"},
+    {"source": "core-switch-1", "source_port": 3, "target": "flaky-sensor"},
+]
+
 CHECK_INTERVAL_SECONDS = 10
 _SEVERITY_FOR_STATUS = {"up": "ok", "down": "critical", "unknown": "warning"}
 
@@ -103,6 +113,19 @@ def serve_index():
 def get_status():
     with _status_lock:
         return _latest_status
+
+
+@app.get("/topology")
+def get_topology():
+    """Fixture network topology plus each device's current status.
+
+    Reuses _latest_status as-is (the same guardrailed, validated data
+    /status serves) rather than recomputing anything — this endpoint adds
+    no new status logic, only the manually-defined connections list.
+    """
+    with _status_lock:
+        devices = _latest_status
+    return {"connections": CONNECTIONS, "devices": devices}
 
 
 class ChatRequest(BaseModel):

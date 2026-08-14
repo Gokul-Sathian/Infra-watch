@@ -82,6 +82,47 @@
     z-index: 5;
   }
 
+  #view-tabs {
+    position: fixed;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    background: #1d2026;
+    border: 1px solid #2b2f37;
+    border-radius: 8px;
+    padding: 3px;
+    gap: 3px;
+    z-index: 6;
+  }
+  #view-tabs .view-tab {
+    background: none;
+    border: none;
+    color: #9aa1ac;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 6px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  #view-tabs .view-tab.active { background: #2b6ef2; color: #fff; }
+
+  #topology {
+    position: fixed;
+    inset: 0;
+    background: #14161a;
+    display: none;
+  }
+  #topology svg { width: 100%; height: 100%; }
+  #topology .topo-node { cursor: pointer; }
+  #topology .topo-node circle { stroke: #14161a; stroke-width: 3; }
+  #topology .topo-label {
+    fill: #e6e8eb;
+    font-size: 14px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    text-anchor: middle;
+  }
+
   #chat-bar {
     position: fixed;
     left: 50%;
@@ -173,7 +214,12 @@
 </head>
 <body>
   <div id="hint">infra-watch — click a device for details</div>
+  <div id="view-tabs">
+    <button class="view-tab active" data-view="3d">3D View</button>
+    <button class="view-tab" data-view="topology">Topology View</button>
+  </div>
   <div id="scene"></div>
+  <div id="topology"></div>
 
   <div id="panel">
     <button id="panel-close">✕</button>
@@ -429,6 +475,135 @@ async function pollStatus() {
 
 pollStatus();
 setInterval(pollStatus, 5000);
+
+// --- view tabs (3D / Topology) ---
+
+const sceneEl = document.getElementById("scene");
+const topologyEl = document.getElementById("topology");
+
+document.querySelectorAll(".view-tab").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".view-tab").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    const isTopology = btn.dataset.view === "topology";
+    sceneEl.style.display = isTopology ? "none" : "block";
+    topologyEl.style.display = isTopology ? "block" : "none";
+  });
+});
+
+// --- topology view (2D hub-and-spoke SVG) ---
+// Reuses aggregateMasterState (node color) and the same STATUS_COLOR
+// palette as the 3D master LED, and the same showPanel side panel — no
+// separate coloring or detail-panel logic for this view.
+
+function cssColor(hex) {
+  return "#" + hex.toString(16).padStart(6, "0");
+}
+
+function nodeColor(ports) {
+  const state = aggregateMasterState(ports);
+  if (state === "green-pulse") return cssColor(STATUS_COLOR.up);
+  if (state === "red-hard-blink") return cssColor(STATUS_COLOR.down);
+  if (state === "orange-blink") return cssColor(STATUS_COLOR.mixed);
+  return cssColor(STATUS_COLOR.unknown);
+}
+
+// Line color uses device-level status (not the ports aggregate): green
+// only if both ends are confirmed up, red if the hub itself is down
+// (that connection is effectively cut regardless of the leaf), orange
+// for everything else (exactly one end down/unknown).
+function connectionColor(hubStatus, leafStatus) {
+  if (hubStatus === "down") return cssColor(STATUS_COLOR.down);
+  if (hubStatus === "up" && leafStatus === "up") return cssColor(STATUS_COLOR.up);
+  return cssColor(STATUS_COLOR.mixed);
+}
+
+function renderTopology(topology) {
+  const connections = topology.connections || [];
+  const devicesByName = {};
+  (topology.devices || []).forEach((d) => { devicesByName[d.name] = d; });
+
+  if (connections.length === 0) {
+    topologyEl.innerHTML = '<div style="color:#6b7280; padding: 80px; text-align:center; font-size: 13px;">No topology data.</div>';
+    return;
+  }
+
+  // Single-hub fixture topology: every connection shares the same source.
+  const hubName = connections[0].source;
+  const leafNames = connections.map((c) => c.target);
+
+  const width = 900, height = 560;
+  const cx = width / 2, cy = height / 2;
+  const spokeRadius = Math.min(width, height) * 0.32;
+  const hubR = 34, leafR = 26;
+
+  const leafPositions = leafNames.map((name, i) => {
+    const angle = -Math.PI / 2 + (i * 2 * Math.PI) / leafNames.length;
+    return {
+      name,
+      x: cx + spokeRadius * Math.cos(angle),
+      y: cy + spokeRadius * Math.sin(angle),
+    };
+  });
+
+  const hubDevice = devicesByName[hubName];
+  const hubColor = hubDevice ? nodeColor(hubDevice.ports) : cssColor(STATUS_COLOR.unknown);
+  const hubStatus = hubDevice ? hubDevice.status : "unknown";
+
+  const lines = connections.map((conn) => {
+    const leafPos = leafPositions.find((p) => p.name === conn.target);
+    const leafDevice = devicesByName[conn.target];
+    const leafStatus = leafDevice ? leafDevice.status : "unknown";
+    const color = connectionColor(hubStatus, leafStatus);
+    return `<line x1="${cx}" y1="${cy}" x2="${leafPos.x}" y2="${leafPos.y}" stroke="${color}" stroke-width="3" />`;
+  }).join("");
+
+  const leafNodes = leafPositions.map((pos) => {
+    const device = devicesByName[pos.name];
+    const color = device ? nodeColor(device.ports) : cssColor(STATUS_COLOR.unknown);
+    return `
+      <g class="topo-node" data-device-name="${pos.name}">
+        <circle cx="${pos.x}" cy="${pos.y}" r="${leafR}" fill="${color}" />
+        <text class="topo-label" x="${pos.x}" y="${pos.y + leafR + 18}">${pos.name}</text>
+      </g>
+    `;
+  }).join("");
+
+  topologyEl.innerHTML = `
+    <svg viewBox="0 0 ${width} ${height}">
+      ${lines}
+      <g class="topo-node" data-device-name="${hubName}">
+        <circle cx="${cx}" cy="${cy}" r="${hubR}" fill="${hubColor}" />
+        <text class="topo-label" x="${cx}" y="${cy + hubR + 20}">${hubName}</text>
+      </g>
+      ${leafNodes}
+    </svg>
+  `;
+
+  topologyEl.querySelectorAll(".topo-node").forEach((node) => {
+    node.addEventListener("click", () => {
+      const name = node.dataset.deviceName;
+      const device = devicesByName[name];
+      if (device) {
+        selectedDevice = name;
+        showPanel(device);
+      }
+    });
+  });
+}
+
+async function pollTopology() {
+  try {
+    const res = await fetch("/topology");
+    const topology = await res.json();
+    renderTopology(topology);
+  } catch (err) {
+    console.error("failed to fetch /topology", err);
+  }
+}
+
+pollTopology();
+setInterval(pollTopology, 5000);
 
 // --- click handling / side panel ---
 
