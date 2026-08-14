@@ -50,7 +50,7 @@ ROADMAP.md                 Planned work and known gaps
 
 ```bash
 pip install -r requirements.txt
-cp .env.example .env   # then fill in your real GEMINI_API_KEY
+cp .env.example .env 
 ```
 
 Edit `INVENTORY` in `main.py` to point at the devices you actually want
@@ -82,8 +82,5 @@ Runs the 5 built-in scenarios against the real check-cycle logic and
 prints pass/fail per case plus a total.
 
 ## Current limitations
-
-No auth on the dashboard/chat (fine on `localhost`, not once exposed
-further), no persisted history (in-memory only, lost on restart), and
-SNMP / other subnets / CCTV aren't integrated yet. See `ROADMAP.md` for
+See `ROADMAP.md` for
 the full list and what's next.
