@@ -44,12 +44,51 @@ USE_FIXTURES = os.environ.get("INFRA_WATCH_USE_FIXTURES", "").strip().lower() in
 # reachability was never confirmed, so it resolves to "unknown" — not
 # "down", which would imply a confirmed refusal/no-route instead of a
 # check that simply couldn't complete.
+#
+# "ports" is simulated fixture data only — it is NOT real per-port
+# telemetry. Real per-port status requires SNMP polling of the device,
+# which isn't implemented yet (planned as a later step; see ROADMAP.md).
+# A device with no "ports" entry here represents a device we have no
+# per-port data for at all, same as a real device before SNMP exists.
 _FIXTURE_RESULTS = {
-    "192.168.1.1": {"status": "up", "latency_ms": 3.2},          # core-switch-1
-    "192.168.1.5": {"status": "down", "latency_ms": None},       # server-room-ap
-    "192.168.1.20": {"status": "unknown", "latency_ms": None},   # nas-01, times out
-    "192.168.1.30": {"status": "up", "latency_ms": 11.7},
-    "192.168.1.99": {"status": "down", "latency_ms": None},
+    "192.168.1.1": {  # core-switch-1 — one port down, rest up
+        "status": "up", "latency_ms": 3.2,
+        "ports": [
+            {"port": 1, "status": "up"},
+            {"port": 2, "status": "up"},
+            {"port": 3, "status": "down"},
+            {"port": 4, "status": "up"},
+        ],
+    },
+    "192.168.1.5": {  # server-room-ap — every port down
+        "status": "down", "latency_ms": None,
+        "ports": [
+            {"port": 1, "status": "down"},
+            {"port": 2, "status": "down"},
+            {"port": 3, "status": "down"},
+            {"port": 4, "status": "down"},
+        ],
+    },
+    "192.168.1.20": {"status": "unknown", "latency_ms": None},   # nas-01, times out — no port data
+    "192.168.1.30": {  # every port up
+        "status": "up", "latency_ms": 11.7,
+        "ports": [
+            {"port": 1, "status": "up"},
+            {"port": 2, "status": "up"},
+            {"port": 3, "status": "up"},
+            {"port": 4, "status": "up"},
+            {"port": 5, "status": "up"},
+        ],
+    },
+    "192.168.1.99": {  # one port's own status is unknown — forces the master LED gray
+        "status": "down", "latency_ms": None,
+        "ports": [
+            {"port": 1, "status": "up"},
+            {"port": 2, "status": "unknown"},
+            {"port": 3, "status": "down"},
+            {"port": 4, "status": "up"},
+        ],
+    },
 }
 
 # Hosts that simulate a check that keeps erroring outright (e.g. a crashed
@@ -68,6 +107,7 @@ def _check_device_status_fixture(host: str) -> dict:
         "status": fixture["status"],
         "latency_ms": fixture["latency_ms"],
         "last_checked": datetime.now(timezone.utc).isoformat(),
+        "ports": fixture.get("ports", []),
     }
 
 
@@ -88,11 +128,14 @@ def _check_device_status_real(host: str) -> dict:
     result = ping(host, timeout=PING_TIMEOUT_SECONDS, unit="ms")
     now = datetime.now(timezone.utc).isoformat()
 
+    # Real per-port status requires SNMP polling, which isn't implemented
+    # yet (planned as a later step) — a real check only ever confirms
+    # whole-device reachability, so "ports" is always empty here.
     if result is None:
-        return {"host": host, "status": "unknown", "latency_ms": None, "last_checked": now}
+        return {"host": host, "status": "unknown", "latency_ms": None, "last_checked": now, "ports": []}
     if result is False:
-        return {"host": host, "status": "down", "latency_ms": None, "last_checked": now}
-    return {"host": host, "status": "up", "latency_ms": round(result, 2), "last_checked": now}
+        return {"host": host, "status": "down", "latency_ms": None, "last_checked": now, "ports": []}
+    return {"host": host, "status": "up", "latency_ms": round(result, 2), "last_checked": now, "ports": []}
 
 
 def check_device_status(host: str) -> dict:
@@ -127,4 +170,5 @@ def check_device_status_with_retries(host: str, max_retries: int = MAX_RETRIES_P
         "status": "unknown",
         "latency_ms": None,
         "last_checked": datetime.now(timezone.utc).isoformat(),
+        "ports": [],
     }

@@ -61,6 +61,9 @@ def run_check_cycle(inventory=None):
                 "latency_ms": check["latency_ms"],
                 "last_checked": check["last_checked"],
                 "severity": _SEVERITY_FOR_STATUS[check["status"]],
+                # Simulated fixture data only, not real per-port telemetry
+                # (that needs SNMP polling — planned later). See ROADMAP.md.
+                "ports": check.get("ports", []),
             }
         )
 

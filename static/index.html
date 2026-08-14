@@ -167,6 +167,7 @@ const STATUS_COLOR = {
   up: 0x3ddc84,
   down: 0xff5c5c,
   unknown: 0x6b6f76,
+  mixed: 0xff9800, // master LED only: some ports up, some down
 };
 
 const scene = new THREE.Scene();
@@ -207,7 +208,7 @@ const CHASSIS_WIDTH = 4.2, CHASSIS_HEIGHT = 0.42, CHASSIS_DEPTH = 1.3;
 const PANEL_WIDTH = CHASSIS_WIDTH * 0.58, PANEL_HEIGHT = CHASSIS_HEIGHT * 0.55;
 const PANEL_X = CHASSIS_WIDTH * 0.12;
 const OVERALL_LED_X = -CHASSIS_WIDTH / 2 + 0.28;
-const PORT_LED_COUNT = 4;
+const DEFAULT_PORT_LED_COUNT = 4; // used only when a device has no ports data at all
 const DEVICE_SPACING = CHASSIS_WIDTH + 1.0;
 
 const chassisGeometry = new THREE.BoxGeometry(CHASSIS_WIDTH, CHASSIS_HEIGHT, CHASSIS_DEPTH);
@@ -222,11 +223,12 @@ const overallLedGeometry = new THREE.BoxGeometry(0.16, 0.16, 0.02);
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
 
-// device.name -> { group, chassisMesh, panelMesh, overallLed: {mesh, material}, portLeds: [{mesh, material}], label, data }
+// device.name -> { group, chassisMesh, panelMesh, overallLed: {mesh, material}, ports: [{mesh, material}], label, data }
 const devices = new Map();
 let clock = new THREE.Clock();
 
-function buildDevice(name, index, total) {
+function buildDevice(report, index, total) {
+  const name = report.name;
   const startX = -((total - 1) * DEVICE_SPACING) / 2;
 
   const group = new THREE.Group();
@@ -243,24 +245,29 @@ function buildDevice(name, index, total) {
   panelMesh.userData.deviceName = name;
   group.add(panelMesh);
 
-  // Decorative row of port-style LEDs — no per-port data exists, so these
-  // stay a fixed dim color; only the overall LED encodes real status.
-  const portLeds = [];
+  // One LED per real port when we have port data; falls back to a fixed
+  // dim placeholder row when a device has no per-port data at all (e.g.
+  // real-ping mode, or a device that couldn't be checked this cycle).
+  const portCount = (report.ports && report.ports.length > 0) ? report.ports.length : DEFAULT_PORT_LED_COUNT;
+  const ports = [];
   const portRowWidth = PANEL_WIDTH * 0.7;
   const portStartX = PANEL_X - portRowWidth / 2;
-  for (let i = 0; i < PORT_LED_COUNT; i++) {
+  for (let i = 0; i < portCount; i++) {
     const portMaterial = new THREE.MeshStandardMaterial({
-      color: 0x2c2f34,
+      color: STATUS_COLOR.unknown,
       emissive: 0x000000,
+      emissiveIntensity: 0,
+      transparent: true,
+      opacity: 1,
       roughness: 0.4,
       metalness: 0.3,
     });
     const port = new THREE.Mesh(ledGeometry, portMaterial);
-    const portX = portStartX + (i * portRowWidth) / (PORT_LED_COUNT - 1);
+    const portX = portCount > 1 ? portStartX + (i * portRowWidth) / (portCount - 1) : PANEL_X;
     port.position.set(portX, 0, CHASSIS_DEPTH / 2 + 0.015);
     port.userData.deviceName = name;
     group.add(port);
-    portLeds.push({ mesh: port, material: portMaterial });
+    ports.push({ mesh: port, material: portMaterial });
   }
 
   const overallLedMaterial = new THREE.MeshStandardMaterial({
@@ -287,9 +294,21 @@ function buildDevice(name, index, total) {
     chassisMesh,
     panelMesh,
     overallLed: { mesh: overallLedMesh, material: overallLedMaterial },
-    portLeds,
+    ports,
     label,
   };
+}
+
+// Master LED state is derived from the ports array, NOT the device's raw
+// status — this is a visual aggregation layer only; the device-level
+// status used for the text/chat report and its guardrail are unaffected.
+function aggregateMasterState(ports) {
+  if (!Array.isArray(ports) || ports.length === 0) return "gray";
+  if (ports.some((p) => p.status !== "up" && p.status !== "down")) return "gray"; // any "unknown" (or unexpected value)
+  const upCount = ports.filter((p) => p.status === "up").length;
+  if (upCount === ports.length) return "green-pulse";
+  if (upCount === 0) return "red-hard-blink";
+  return "orange-steady";
 }
 
 function makeLabelSprite(text) {
@@ -310,29 +329,16 @@ function makeLabelSprite(text) {
   return sprite;
 }
 
-function applyStatusColor(entry, status) {
-  const color = STATUS_COLOR[status] ?? STATUS_COLOR.unknown;
-  const material = entry.overallLed.material;
-  material.color.setHex(color);
-  if (status === "unknown") {
-    // Dim, static gray — no glow, no animation.
-    material.emissive.setHex(0x000000);
-    material.emissiveIntensity = 0;
-    material.opacity = 1;
-  }
-}
-
 function updateDevices(reports) {
   const names = reports.map((r) => r.name);
 
   reports.forEach((report, index) => {
     let entry = devices.get(report.name);
     if (!entry) {
-      entry = buildDevice(report.name, index, reports.length);
+      entry = buildDevice(report, index, reports.length);
       devices.set(report.name, entry);
     }
     entry.data = report;
-    applyStatusColor(entry, report.status);
   });
 
   // Drop devices no longer present in the inventory.
@@ -397,7 +403,7 @@ renderer.domElement.addEventListener("click", (event) => {
       e.chassisMesh,
       e.panelMesh,
       e.overallLed.mesh,
-      ...e.portLeds.map((p) => p.mesh),
+      ...e.ports.map((p) => p.mesh),
     ])
   );
   if (hits.length > 0) {
@@ -410,7 +416,34 @@ renderer.domElement.addEventListener("click", (event) => {
   }
 });
 
-// --- animation loop: soft pulse on "up", hard blink on "down", static "unknown" ---
+// --- animation loop ---
+// Per-port LEDs: green soft-pulse (up) / red hard-blink (down) / dim gray
+// static (unknown) — the same three-state language the master LED used
+// to use for device-level status.
+// Master LED: a separate 4-state aggregation over the ports array —
+// green pulse (all up), orange steady/no animation (mixed), red hard
+// blink (all down), gray static (any unknown, or no port data).
+
+function setLedState(material, t, state) {
+  if (state === "up") {
+    const wave = 0.5 + 0.5 * Math.sin(t * 2.2); // slow, soft cycle
+    material.color.setHex(STATUS_COLOR.up);
+    material.emissive.setHex(STATUS_COLOR.up);
+    material.emissiveIntensity = 0.3 + 0.7 * wave;
+    material.opacity = 0.7 + 0.3 * wave;
+  } else if (state === "down") {
+    const on = Math.sin(t * 2.0) > 0; // hard on/off blink
+    material.color.setHex(STATUS_COLOR.down);
+    material.emissive.setHex(STATUS_COLOR.down);
+    material.emissiveIntensity = on ? 1.0 : 0.0;
+    material.opacity = on ? 1.0 : 0.35;
+  } else {
+    material.color.setHex(STATUS_COLOR.unknown);
+    material.emissive.setHex(0x000000);
+    material.emissiveIntensity = 0;
+    material.opacity = 1;
+  }
+}
 
 function animate() {
   requestAnimationFrame(animate);
@@ -418,21 +451,30 @@ function animate() {
 
   for (const entry of devices.values()) {
     if (!entry.data) continue;
-    const status = entry.data.status;
-    const material = entry.overallLed.material;
+    const ports = entry.data.ports || [];
 
-    if (status === "up") {
-      const wave = 0.5 + 0.5 * Math.sin(t * 2.2); // slow, soft cycle
-      material.emissive.setHex(STATUS_COLOR.up);
-      material.emissiveIntensity = 0.3 + 0.7 * wave;
-      material.opacity = 0.7 + 0.3 * wave;
-    } else if (status === "down") {
-      const on = Math.sin(t * 2.0) > 0; // hard on/off blink, slower
-      material.emissive.setHex(STATUS_COLOR.down);
-      material.emissiveIntensity = on ? 1.0 : 0.0;
-      material.opacity = on ? 1.0 : 0.35;
+    entry.ports.forEach((portEntry, i) => {
+      const portStatus = ports[i] ? ports[i].status : "unknown";
+      setLedState(portEntry.material, t, portStatus);
+    });
+
+    const masterMaterial = entry.overallLed.material;
+    switch (aggregateMasterState(ports)) {
+      case "green-pulse":
+        setLedState(masterMaterial, t, "up");
+        break;
+      case "red-hard-blink":
+        setLedState(masterMaterial, t, "down");
+        break;
+      case "orange-steady":
+        masterMaterial.color.setHex(STATUS_COLOR.mixed);
+        masterMaterial.emissive.setHex(STATUS_COLOR.mixed);
+        masterMaterial.emissiveIntensity = 0.5; // steady — no animation
+        masterMaterial.opacity = 1;
+        break;
+      default: // gray
+        setLedState(masterMaterial, t, "unknown");
     }
-    // "unknown" stays exactly as set in applyStatusColor — dim and static.
   }
 
   renderer.render(scene, camera);
