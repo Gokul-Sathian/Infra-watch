@@ -3,9 +3,119 @@
 <head>
 <meta charset="utf-8" />
 <title>infra-watch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  html, body { margin: 0; height: 100%; background: #14161a; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-  #scene { position: fixed; inset: 0; }
+  :root {
+    /* BGO retro-terminal theme tokens — dark theme only for now. */
+    --iw-bg: #0B0C0A;       --iw-panel: #111210;    --iw-panel-2: #191A15;
+    --iw-line: #3A3520;     --iw-line-soft: #24231A;
+    --iw-text: #F2E9C8;     --iw-text-2: #B3AA88;   --iw-text-3: #85806A;
+    --iw-hover: rgba(255,221,53,0.07); --iw-canvas: #0D0E0B;
+    --iw-ok: #7CE38B;       --iw-warn: #FFDD35;     --iw-down: #FF6B4A;
+    --iw-act: #FFDD35;      --iw-on-act: #14150F;
+    --iw-scan: rgba(255,221,53,0.045);
+  }
+
+  * { border-radius: 0; box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: var(--iw-bg);
+    color: var(--iw-text);
+    font-family: 'IBM Plex Mono', monospace;
+    overflow: hidden;
+  }
+  body { display: flex; flex-direction: column; }
+
+  @keyframes iwblip { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+
+  #topbar {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 22px;
+    padding: 11px 20px;
+    background: var(--iw-panel);
+    border-bottom: 1px solid var(--iw-line);
+  }
+  .topbar-brand { display: flex; align-items: center; gap: 12px; }
+  .topbar-accent { width: 10px; height: 16px; background: var(--iw-act); flex-shrink: 0; }
+  .topbar-title { font-size: 14px; font-weight: 600; letter-spacing: 0.16em; color: var(--iw-act); }
+
+  #subbar {
+    flex: none;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 20px;
+    padding: 10px 20px;
+    background: var(--iw-bg);
+    border-bottom: 1px solid var(--iw-line-soft);
+  }
+
+  #view-tabs { display: flex; border: 1px solid var(--iw-line); }
+  #view-tabs .view-tab {
+    border: 0;
+    border-left: 1px solid var(--iw-line);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    padding: 8px 15px;
+    background: transparent;
+    color: var(--iw-text-2);
+  }
+  #view-tabs .view-tab:first-child { border-left: 0; }
+  #view-tabs .view-tab.active { background: var(--iw-act); color: var(--iw-on-act); }
+
+  #status-strip { display: flex; align-items: center; gap: 18px; font-size: 12px; }
+  .status-count {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--iw-text-2);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .status-count strong { color: var(--iw-text); }
+  .count-dot { width: 7px; height: 7px; flex-shrink: 0; }
+  .count-dot.dot-healthy { background: var(--iw-ok); }
+  .count-dot.dot-at-risk { background: var(--iw-warn); } /* steady — AT RISK never blinks */
+  .count-dot.dot-offline { background: var(--iw-down); animation: iwblip 1.4s steps(2) infinite; } /* only OFFLINE blinks */
+  .count-dot.dot-unknown { background: transparent; border: 1px dashed var(--iw-text-3); }
+
+  #subbar-hint {
+    margin-left: auto;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: var(--iw-text-3);
+    white-space: nowrap;
+  }
+
+  #canvas-area { flex: 1; min-height: 0; position: relative; background: var(--iw-canvas); }
+  #scanline {
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(180deg, var(--iw-scan) 0 1px, transparent 1px 3px);
+    pointer-events: none;
+    z-index: 3;
+  }
+  #scene, #topology, #list-view { position: absolute; inset: 0; }
+  #scene { display: none; }
+  #topology { display: block; }
+  #list-view {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    color: var(--iw-text-3);
+    font-size: 13px;
+    letter-spacing: 0.12em;
+  }
 
   #panel {
     position: fixed;
@@ -73,46 +183,6 @@
   #panel .port-status-text { font-weight: 600; }
   #panel .ports-empty { color: #6b7280; font-size: 12px; padding: 6px 0; font-style: italic; }
 
-  #hint {
-    position: fixed;
-    top: 16px;
-    left: 16px;
-    color: #6b7280;
-    font-size: 12px;
-    z-index: 5;
-  }
-
-  #view-tabs {
-    position: fixed;
-    top: 16px;
-    left: 50%;
-    transform: translateX(-50%);
-    display: flex;
-    background: #1d2026;
-    border: 1px solid #2b2f37;
-    border-radius: 8px;
-    padding: 3px;
-    gap: 3px;
-    z-index: 6;
-  }
-  #view-tabs .view-tab {
-    background: none;
-    border: none;
-    color: #9aa1ac;
-    font-size: 13px;
-    font-weight: 600;
-    padding: 6px 14px;
-    border-radius: 6px;
-    cursor: pointer;
-  }
-  #view-tabs .view-tab.active { background: #2b6ef2; color: #fff; }
-
-  #topology {
-    position: fixed;
-    inset: 0;
-    background: #14161a;
-    display: none;
-  }
   #topology svg { width: 100%; height: 100%; }
   #topology .topo-node { cursor: pointer; }
   #topology .topo-node circle { stroke: #14161a; stroke-width: 3; }
@@ -213,13 +283,36 @@
 </style>
 </head>
 <body>
-  <div id="hint">infra-watch — click a device for details</div>
-  <div id="view-tabs">
-    <button class="view-tab active" data-view="3d">3D View</button>
-    <button class="view-tab" data-view="topology">Topology View</button>
+  <div id="topbar">
+    <div class="topbar-brand">
+      <div class="topbar-accent"></div>
+      <div class="topbar-title">INFRA-WATCH</div>
+    </div>
   </div>
-  <div id="scene"></div>
-  <div id="topology"></div>
+
+  <div id="subbar">
+    <div id="view-tabs">
+      <button class="view-tab active" data-view="topology">TOPOLOGY</button>
+      <button class="view-tab" data-view="3d">RACK</button>
+      <button class="view-tab" data-view="list">LIST</button>
+    </div>
+
+    <div id="status-strip">
+      <div class="status-count"><span class="count-dot dot-healthy"></span><strong id="count-healthy">0</strong> HEALTHY</div>
+      <div class="status-count"><span class="count-dot dot-at-risk"></span><strong id="count-at-risk">0</strong> AT RISK</div>
+      <div class="status-count"><span class="count-dot dot-offline"></span><strong id="count-offline">0</strong> OFFLINE</div>
+      <div class="status-count"><span class="count-dot dot-unknown"></span><strong id="count-unknown">0</strong> UNKNOWN</div>
+    </div>
+
+    <div id="subbar-hint">CLICK A DEVICE FOR DETAILS</div>
+  </div>
+
+  <div id="canvas-area">
+    <div id="scanline"></div>
+    <div id="scene"></div>
+    <div id="topology"></div>
+    <div id="list-view">LIST VIEW — NOT YET BUILT</div>
+  </div>
 
   <div id="panel">
     <button id="panel-close">✕</button>
@@ -260,6 +353,14 @@
 <script type="module">
 import * as THREE from "three";
 
+// Hoisted here (used by the 3D scene's own sizing below, the view-tab
+// switcher, and the topology renderer) — the shell now gives #scene a
+// container smaller than the full viewport (below the top/sub bars), so
+// the renderer must size itself off this element, not window dimensions.
+const sceneEl = document.getElementById("scene");
+const topologyEl = document.getElementById("topology");
+const listViewEl = document.getElementById("list-view");
+
 const STATUS_COLOR = {
   up: 0x3ddc84,
   down: 0xff5c5c,
@@ -270,14 +371,37 @@ const STATUS_COLOR = {
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x14161a);
 
-const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+function getSceneSize() {
+  return { width: sceneEl.clientWidth, height: sceneEl.clientHeight };
+}
+
+// #scene may start hidden (display:none) if Topology is the default tab,
+// in which case it has zero layout size — fall back to the window's
+// aspect ratio just so the camera/renderer aren't created degenerate.
+// resizeSceneRenderer() re-measures for real the moment #scene actually
+// becomes visible (see the tab-click handler below).
+const initialSize = getSceneSize();
+const camera = new THREE.PerspectiveCamera(
+  45,
+  (initialSize.width || window.innerWidth) / (initialSize.height || window.innerHeight),
+  0.1,
+  100
+);
 camera.position.set(0, 4.4, 15.5);
 camera.lookAt(0, 0.1, 0);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setSize(initialSize.width || window.innerWidth, initialSize.height || window.innerHeight);
 renderer.setPixelRatio(window.devicePixelRatio);
-document.getElementById("scene").appendChild(renderer.domElement);
+sceneEl.appendChild(renderer.domElement);
+
+function resizeSceneRenderer() {
+  const { width, height } = getSceneSize();
+  if (width === 0 || height === 0) return; // hidden right now — nothing to size to
+  camera.aspect = width / height;
+  camera.updateProjectionMatrix();
+  renderer.setSize(width, height);
+}
 
 scene.add(new THREE.AmbientLight(0xffffff, 0.4));
 const keyLight = new THREE.DirectionalLight(0xffffff, 1.0);
@@ -292,11 +416,7 @@ floor.rotation.x = -Math.PI / 2;
 floor.position.y = -0.01;
 scene.add(floor);
 
-window.addEventListener("resize", () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-});
+window.addEventListener("resize", resizeSceneRenderer);
 
 // A 1U rack switch: a wide, thin, shallow black chassis (~10:1 width:height)
 // with a recessed lighter-gray panel carrying a row of flat square port
@@ -463,11 +583,34 @@ function updateDevices(reports) {
   }
 }
 
+// New display vocabulary for the status-count strip: HEALTHY / AT RISK /
+// OFFLINE / UNKNOWN — never the internal up/down/unknown data values as
+// display text. Reuses aggregateMasterState (already defined above for
+// the 3D master LED / topology nodes) rather than re-deriving "mixed"
+// separately — a device that's device-level "up" but has some ports down
+// is AT RISK, not HEALTHY.
+function classifyDevice(report) {
+  if (report.status === "down") return "offline";
+  if (report.status === "unknown") return "unknown";
+  const aggregate = aggregateMasterState(report.ports || []);
+  return aggregate === "orange-blink" ? "at-risk" : "healthy";
+}
+
+function updateStatusCounts(reports) {
+  const counts = { healthy: 0, "at-risk": 0, offline: 0, unknown: 0 };
+  reports.forEach((r) => { counts[classifyDevice(r)]++; });
+  document.getElementById("count-healthy").textContent = counts.healthy;
+  document.getElementById("count-at-risk").textContent = counts["at-risk"];
+  document.getElementById("count-offline").textContent = counts.offline;
+  document.getElementById("count-unknown").textContent = counts.unknown;
+}
+
 async function pollStatus() {
   try {
     const res = await fetch("/status");
     const reports = await res.json();
     updateDevices(reports);
+    updateStatusCounts(reports);
   } catch (err) {
     console.error("failed to fetch /status", err);
   }
@@ -476,18 +619,23 @@ async function pollStatus() {
 pollStatus();
 setInterval(pollStatus, 5000);
 
-// --- view tabs (3D / Topology) ---
-
-const sceneEl = document.getElementById("scene");
-const topologyEl = document.getElementById("topology");
+// --- view tabs (Topology / Rack / List) ---
+// LIST has no view built yet (out of scope this round) — its tab is real
+// and clickable, but shows an honest placeholder rather than a dead button.
 
 document.querySelectorAll(".view-tab").forEach((btn) => {
   btn.addEventListener("click", () => {
     document.querySelectorAll(".view-tab").forEach((b) => b.classList.remove("active"));
     btn.classList.add("active");
-    const isTopology = btn.dataset.view === "topology";
-    sceneEl.style.display = isTopology ? "none" : "block";
-    topologyEl.style.display = isTopology ? "block" : "none";
+    const view = btn.dataset.view;
+    sceneEl.style.display = view === "3d" ? "block" : "none";
+    topologyEl.style.display = view === "topology" ? "block" : "none";
+    listViewEl.style.display = view === "list" ? "flex" : "none";
+    // #scene has zero layout size while display:none, so the renderer's
+    // buffer/camera aspect can only be fixed to the real container size
+    // right after it becomes visible again — reading clientWidth/Height
+    // here forces the browser to lay it out first.
+    if (view === "3d") resizeSceneRenderer();
   });
 });
 
