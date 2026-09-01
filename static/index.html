@@ -8,7 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    /* BGO retro-terminal theme tokens — dark theme only for now. */
+    /* "Phosphor" — the retro-terminal dark theme, still the default. */
     --iw-bg: #0B0C0A;       --iw-panel: #111210;    --iw-panel-2: #191A15;
     --iw-line: #3A3520;     --iw-line-soft: #24231A;
     --iw-text: #F2E9C8;     --iw-text-2: #B3AA88;   --iw-text-3: #85806A;
@@ -16,6 +16,19 @@
     --iw-ok: #7CE38B;       --iw-warn: #FFDD35;     --iw-down: #FF6B4A;
     --iw-act: #FFDD35;      --iw-on-act: #14150F;
     --iw-scan: rgba(255,221,53,0.045);
+    --iw-down-soft: rgba(255,107,74,0.08);
+  }
+
+  /* "Paper" — the light theme, toggled via [data-theme="light"] on <html>. */
+  :root[data-theme="light"] {
+    --iw-bg: #FCF8F1;       --iw-panel: #FFFFFF;    --iw-panel-2: #F1EDE2;
+    --iw-line: #D9D3C4;     --iw-line-soft: #EAE5D9;
+    --iw-text: #23241F;     --iw-text-2: #55564C;   --iw-text-3: #86867A;
+    --iw-hover: rgba(250,173,60,0.12); --iw-canvas: #F7F2E6;
+    --iw-ok: #1E8A4A;       --iw-warn: #B07D0A;     --iw-down: #C43B1C;
+    --iw-act: #FAAD3C;      --iw-on-act: #23241F;
+    --iw-scan: rgba(35,36,31,0.03);
+    --iw-down-soft: rgba(196,59,28,0.10);
   }
 
   * { border-radius: 0; box-sizing: border-box; }
@@ -35,6 +48,8 @@
 
   #topbar {
     flex: none;
+    position: relative; /* above #panel's z-index so the theme toggle stays clickable while a drawer is open */
+    z-index: 11;
     display: flex;
     align-items: center;
     gap: 22px;
@@ -45,6 +60,19 @@
   .topbar-brand { display: flex; align-items: center; gap: 12px; }
   .topbar-accent { width: 10px; height: 16px; background: var(--iw-act); flex-shrink: 0; }
   .topbar-title { font-size: 14px; font-weight: 600; letter-spacing: 0.16em; color: var(--iw-act); }
+  .theme-toggle {
+    margin-left: auto;
+    border: 1px solid var(--iw-line);
+    background: transparent;
+    color: var(--iw-text-2);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    padding: 6px 12px;
+  }
+  .theme-toggle:hover { border-color: var(--iw-act); color: var(--iw-act); }
 
   #subbar {
     flex: none;
@@ -342,7 +370,7 @@
     background: transparent;
     border: 1px solid var(--iw-line-soft);
   }
-  .drawer-blast.active { background: rgba(255,107,74,0.08); border-color: var(--iw-down); }
+  .drawer-blast.active { background: var(--iw-down-soft); border-color: var(--iw-down); }
   .drawer-blast-title { font-size: 11px; font-weight: 600; letter-spacing: 0.14em; color: var(--iw-text-3); }
   .drawer-blast.active .drawer-blast-title { color: var(--iw-down); }
   .drawer-blast-text { margin-top: 7px; font-size: 12px; color: var(--iw-text-2); line-height: 1.6; }
@@ -529,6 +557,7 @@
       <div class="topbar-accent"></div>
       <div class="topbar-title">INFRA-WATCH</div>
     </div>
+    <button id="theme-toggle" class="theme-toggle" title="Switch theme">PAPER</button>
   </div>
 
   <div id="subbar">
@@ -650,6 +679,27 @@
   </div>
 
 <script type="module">
+// --- theme toggle (Phosphor/dark <-> Paper/light) ---
+// In-memory only for now, per the task -- no localStorage/backend, so it
+// resets to Phosphor on reload. The button's label always names the
+// theme a click would switch TO, not the current one.
+let theme = "dark";
+const themeToggleBtn = document.getElementById("theme-toggle");
+function applyTheme() {
+  if (theme === "light") {
+    document.documentElement.setAttribute("data-theme", "light");
+    themeToggleBtn.textContent = "PHOSPHOR";
+  } else {
+    document.documentElement.removeAttribute("data-theme");
+    themeToggleBtn.textContent = "PAPER";
+  }
+}
+themeToggleBtn.addEventListener("click", () => {
+  theme = theme === "light" ? "dark" : "light";
+  applyTheme();
+});
+applyTheme();
+
 // Hoisted here — used by the view-tab switcher and each view's renderer.
 const rackEl = document.getElementById("rack");
 const rackRowsEl = document.getElementById("rack-rows");
