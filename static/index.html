@@ -8,6 +8,12 @@
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
+    /* Real height of #topbar + #subbar, kept in sync by JS (they can grow
+       on narrow viewports since #subbar wraps) -- lets #panel start its
+       own visible content right below the app chrome instead of guessing
+       a fixed pixel value. This fallback only matters for the first paint
+       before that JS runs. */
+    --iw-chrome-h: 84px;
     /* "Phosphor" — the retro-terminal dark theme, still the default. */
     --iw-bg: #0B0C0A;       --iw-panel: #111210;    --iw-panel-2: #191A15;
     --iw-line: #3A3520;     --iw-line-soft: #24231A;
@@ -76,6 +82,8 @@
 
   #subbar {
     flex: none;
+    position: relative; /* above #panel's z-index so the view tabs stay clickable while a drawer is open */
+    z-index: 11;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -138,12 +146,27 @@
 
   @keyframes iwpulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 
-  #rack { display: none; overflow-y: auto; padding: 32px; }
+  #rack { display: none; overflow-y: auto; padding: 20px 24px; }
+  #rack-header {
+    text-align: center;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    color: var(--iw-text-3);
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
   #rack-panel {
-    max-width: 920px;
-    margin: 0 auto;
+    /* Same full-width-minus-padding container as #list-panel -- no
+       max-width cap -- so Rack/Topology/List all span the same area. */
     background: var(--iw-panel);
     border: 1px solid var(--iw-line);
+  }
+  #rack-footer {
+    text-align: center;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: var(--iw-text-3);
+    margin-top: 14px;
   }
   .rack-row {
     display: flex;
@@ -245,13 +268,30 @@
     transform: translateX(100%);
     transition: transform 0.2s ease-out;
     box-sizing: border-box;
-    overflow-y: auto;
+    /* The box itself still anchors flush to the real top of the viewport
+       (top:0, full height) -- this padding only pushes the drawer's own
+       VISIBLE content down below #topbar/#subbar, which paint above it
+       (z-index 11 > 10) in that top-right corner, so nothing here is ever
+       rendered underneath and invisible. */
+    padding-top: var(--iw-chrome-h);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
     z-index: 10;
     font-family: 'IBM Plex Mono', monospace;
   }
   #panel.open { transform: translateX(0); }
 
-  .drawer-header { padding: 16px 18px 14px; border-bottom: 1px solid var(--iw-line); }
+  /* Flex sibling of the scrolling #panel-body below it, not inside it --
+     so it never scrolls out of view; name/type/status pill/close button
+     always stay visible while only the body content scrolls. */
+  .drawer-header {
+    flex: none;
+    background: var(--iw-panel);
+    padding: 16px 18px 14px;
+    border-bottom: 1px solid var(--iw-line);
+  }
+  #panel-body { flex: 1; min-height: 0; overflow-y: auto; }
   .drawer-header-row { display: flex; align-items: flex-start; gap: 12px; }
   .drawer-header-main { flex: 1; min-width: 0; }
   .drawer-name { font-size: 17px; font-weight: 600; letter-spacing: 0.02em; color: var(--iw-act); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -579,7 +619,11 @@
 
   <div id="canvas-area">
     <div id="scanline"></div>
-    <div id="rack"><div id="rack-panel"><div id="rack-rows"></div></div></div>
+    <div id="rack">
+      <div id="rack-header"></div>
+      <div id="rack-panel"><div id="rack-rows"></div></div>
+      <div id="rack-footer">RACK VIEW IS FOR PHYSICAL ORIENTATION. DEPENDENCIES LIVE IN TOPOLOGY.</div>
+    </div>
     <div id="topology">
       <div id="topology-legend">
         <span class="legend-title">LINK HEALTH</span>
@@ -615,44 +659,46 @@
       </div>
     </div>
 
-    <div class="drawer-actions">
-      <button id="panel-ping" class="drawer-btn primary">PING</button>
-      <button id="panel-restart" class="drawer-btn" disabled title="No real remediation action exists yet — placeholder for a future integration.">RESTART</button>
-      <button id="panel-ack" class="drawer-btn">ACK</button>
-    </div>
-
-    <div class="drawer-section">
-      <div class="drawer-lat-header">
-        <span class="drawer-label">LATENCY &middot; RECENT</span>
-        <span class="drawer-lat-value" id="panel-latency">—</span>
+    <div id="panel-body">
+      <div class="drawer-actions">
+        <button id="panel-ping" class="drawer-btn primary">PING</button>
+        <button id="panel-restart" class="drawer-btn" disabled title="No real remediation action exists yet — placeholder for a future integration.">RESTART</button>
+        <button id="panel-ack" class="drawer-btn">ACK</button>
       </div>
-      <svg id="panel-spark" viewBox="0 0 320 56" width="100%" height="56" preserveAspectRatio="none">
-        <polyline id="panel-spark-line" fill="none" stroke-width="1.6" points=""></polyline>
-      </svg>
-    </div>
 
-    <div class="drawer-section drawer-facts" id="panel-facts"></div>
-
-    <div class="drawer-section">
-      <div class="drawer-ports-header">
-        <span class="drawer-label">PORTS &middot; <span id="panel-port-summary">—</span></span>
-        <span class="info-tip" title="Simulated fixture data for now — not live SNMP data yet. Real per-port monitoring is planned as a later step.">ⓘ</span>
+      <div class="drawer-section">
+        <div class="drawer-lat-header">
+          <span class="drawer-label">LATENCY &middot; RECENT</span>
+          <span class="drawer-lat-value" id="panel-latency">—</span>
+        </div>
+        <svg id="panel-spark" viewBox="0 0 320 56" width="100%" height="56" preserveAspectRatio="none">
+          <polyline id="panel-spark-line" fill="none" stroke-width="1.6" points=""></polyline>
+        </svg>
       </div>
-      <div id="panel-ports-list"></div>
-    </div>
 
-    <div class="drawer-section">
-      <div class="drawer-label">CONNECTED PEERS</div>
-      <div class="drawer-peers" id="panel-peers"></div>
-      <div class="drawer-blast" id="panel-blast">
-        <div class="drawer-blast-title" id="panel-blast-title">BLAST RADIUS</div>
-        <div class="drawer-blast-text" id="panel-blast-text">—</div>
+      <div class="drawer-section drawer-facts" id="panel-facts"></div>
+
+      <div class="drawer-section">
+        <div class="drawer-ports-header">
+          <span class="drawer-label">PORTS &middot; <span id="panel-port-summary">—</span></span>
+          <span class="info-tip" title="Simulated fixture data for now — not live SNMP data yet. Real per-port monitoring is planned as a later step.">ⓘ</span>
+        </div>
+        <div id="panel-ports-list"></div>
       </div>
-    </div>
 
-    <div class="drawer-section" style="border-bottom: none; padding-bottom: 26px;">
-      <div class="drawer-label">RECENT EVENTS</div>
-      <div class="drawer-events" id="panel-events"></div>
+      <div class="drawer-section">
+        <div class="drawer-label">CONNECTED PEERS</div>
+        <div class="drawer-peers" id="panel-peers"></div>
+        <div class="drawer-blast" id="panel-blast">
+          <div class="drawer-blast-title" id="panel-blast-title">BLAST RADIUS</div>
+          <div class="drawer-blast-text" id="panel-blast-text">—</div>
+        </div>
+      </div>
+
+      <div class="drawer-section" style="border-bottom: none; padding-bottom: 26px;">
+        <div class="drawer-label">RECENT EVENTS</div>
+        <div class="drawer-events" id="panel-events"></div>
+      </div>
     </div>
   </div>
 
@@ -679,6 +725,19 @@
   </div>
 
 <script type="module">
+// --- keep --iw-chrome-h (topbar + subbar height) in sync ---
+// #subbar wraps on narrow viewports, so this is measured rather than a
+// fixed guess -- the device drawer uses it to start its own header right
+// below the app chrome instead of rendering underneath it.
+const topbarEl = document.getElementById("topbar");
+const subbarEl = document.getElementById("subbar");
+function syncChromeHeight() {
+  const h = topbarEl.offsetHeight + subbarEl.offsetHeight;
+  document.documentElement.style.setProperty("--iw-chrome-h", `${h}px`);
+}
+syncChromeHeight();
+window.addEventListener("resize", syncChromeHeight);
+
 // --- theme toggle (Phosphor/dark <-> Paper/light) ---
 // In-memory only for now, per the task -- no localStorage/backend, so it
 // resets to Phosphor on reload. The button's label always names the
@@ -702,6 +761,7 @@ applyTheme();
 
 // Hoisted here — used by the view-tab switcher and each view's renderer.
 const rackEl = document.getElementById("rack");
+const rackHeaderEl = document.getElementById("rack-header");
 const rackRowsEl = document.getElementById("rack-rows");
 const topologyEl = document.getElementById("topology");
 const topologyGraphEl = document.getElementById("topology-graph");
@@ -799,8 +859,16 @@ const CLASSIFICATION_STROKE = {
   unknown: "var(--iw-text-3)",
 };
 
-// FIXTURE: MODEL/FIRMWARE/SITE aren't tracked by any real inventory data
-// yet — these are placeholder values only (deterministic per device so
+// FIXTURE: no device in the inventory carries a site/rack location yet
+// (that needs real facilities data later) — every device defaults to
+// the same physical rack. Centralized here so the drawer's SITE fact
+// and the rack view's header/footer can never disagree about it.
+function fixtureLocation(report) {
+  return { site: (report && report.site) || "BARRIE HQ", rackId: (report && report.rack_id) || "A1" };
+}
+
+// FIXTURE: MODEL/FIRMWARE aren't tracked by any real inventory data yet
+// — these are placeholder values only (deterministic per device so
 // they don't change on every refresh). Needs real device data later.
 function fixtureFacts(report) {
   const seed = seedFromName(report.name);
@@ -812,7 +880,7 @@ function fixtureFacts(report) {
     { k: "TYPE", v: (report.type || "—").replace(/_/g, " ").toUpperCase() },
     { k: "MODEL", v: model },
     { k: "FIRMWARE", v: firmware },
-    { k: "SITE", v: "BARRIE HQ" },
+    { k: "SITE", v: fixtureLocation(report).site },
   ];
 }
 
@@ -880,6 +948,9 @@ function computeDownstream(name, connections) {
 // hard-blink / gray static), now as CSS animations instead of a Three.js
 // per-frame material loop.
 function renderRackView(reports) {
+  const location = fixtureLocation(reports[0]);
+  rackHeaderEl.textContent = `${location.site} · RACK ${location.rackId} — FRONT ELEVATION`;
+
   rackRowsEl.innerHTML = "";
   reports.forEach((report) => {
     const classification = classifyDevice(report);
@@ -1387,11 +1458,17 @@ const chatHistory = document.getElementById("chat-history");
 const chatForm = document.getElementById("chat-form");
 const chatInput = document.getElementById("chat-input");
 
-function openDock() {
+// Both toggles are plain <button type="button"> elements outside
+// #chat-form, so neither can submit a form or act as a link -- but
+// e.preventDefault() is kept anyway as a defensive belt-and-suspenders
+// against any future markup change that might put one inside a form.
+function openDock(event) {
+  if (event) event.preventDefault();
   agentDock.classList.add("open");
   chatInput.focus();
 }
-function closeDock() {
+function closeDock(event) {
+  if (event) event.preventDefault();
   agentDock.classList.remove("open");
 }
 
