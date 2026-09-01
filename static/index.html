@@ -50,6 +50,7 @@
   body { display: flex; flex-direction: column; }
 
   @keyframes iwblip { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+  @keyframes iwflow { to { stroke-dashoffset: -24; } }
   @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
 
   #topbar {
@@ -460,6 +461,15 @@
     box-sizing: border-box;
     cursor: pointer;
   }
+  /* Real click state, not a hover/focus proxy -- toggled in JS by
+     comparing each box's device name against the shared selectedDevice
+     used by every other view's drawer-open click. */
+  .topo-node-box.selected { border: 2px solid var(--iw-act); }
+  /* Same hard-blink/soft-pulse distinction as the rack view's LEDs and
+     the status-count strip's OFFLINE dot -- opacity only, so it never
+     fights with the border color chosen above for selection/health. */
+  .topo-node-box.offline { animation: iwblip 1.4s steps(2) infinite; }
+  .topo-node-box.at-risk { animation: iwpulse 2.2s ease-in-out infinite; }
   .topo-node-row1 { display: flex; align-items: center; gap: 9px; }
   .topo-node-dot { width: 7px; height: 7px; flex-shrink: 0; }
   .topo-node-dot.healthy { background: var(--iw-ok); }
@@ -484,9 +494,25 @@
   }
   .topo-node-type { text-transform: uppercase; letter-spacing: 0.12em; }
 
+  /* The WAN pseudo-node: a fixture label for the internet uplink, not a
+     monitored device -- no dot, no status, not clickable. */
+  .topo-wan-box {
+    box-sizing: border-box;
+    padding: 11px 0;
+    text-align: center;
+    border: 1px solid var(--iw-line);
+    color: var(--iw-text-3);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+  }
+
   .topo-edge.healthy { stroke: var(--iw-ok); }
   .topo-edge.degraded { stroke: var(--iw-warn); }
   .topo-edge.down { stroke: var(--iw-down); }
+  /* Dashes flow continuously in the direction of the arrow (source ->
+     target) via stroke-dashoffset -- a down link stays static since
+     "flowing traffic" would misrepresent a link that's actually dead. */
+  .topo-edge:not(.down) { animation: iwflow 1.4s linear infinite; }
 
   @keyframes iwcaret { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
 
@@ -977,10 +1003,7 @@ function renderRackView(reports) {
         <span class="status-pill ${classification}">${CLASSIFICATION_LABEL[classification]}</span>
       </div>
     `;
-    row.addEventListener("click", () => {
-      selectedDevice = report.name;
-      showPanel(report);
-    });
+    row.addEventListener("click", () => setSelectedDevice(report.name, report));
     rackRowsEl.appendChild(row);
   });
 }
@@ -1015,10 +1038,7 @@ function renderListView(reports) {
       <div class="list-row-cell">${formatLastChecked(report.last_checked)}</div>
       <div><span class="status-pill ${classification}">${CLASSIFICATION_LABEL[classification]}</span></div>
     `;
-    row.addEventListener("click", () => {
-      selectedDevice = report.name;
-      showPanel(report);
-    });
+    row.addEventListener("click", () => setSelectedDevice(report.name, report));
     listRowsEl.appendChild(row);
   });
 }
@@ -1092,15 +1112,16 @@ document.querySelectorAll(".view-tab").forEach((btn) => {
   });
 });
 
-// --- topology view (2D hub-and-spoke, restyled per the design system
+// --- topology view (full hierarchy tree, per the design system
 // reference) ---
 // Nodes and edges both reuse classifyDevice() -- the same classification
 // already driving the rack view's left bar/pill and the status-count
 // strip -- so none of these surfaces can ever disagree about a device's
-// state. Layout (center, radius, per-leaf angle) is unchanged from
-// before; only what's drawn at each position and along each edge changed.
+// state.
 
 const TOPO_BOX_WIDTH = 172, TOPO_BOX_HEIGHT = 58;
+const TOPO_WAN_WIDTH = 96, TOPO_WAN_HEIGHT = 40;
+const TOPO_COL_WIDTH = 240, TOPO_ROW_HEIGHT = 100, TOPO_MARGIN = 60;
 
 const EDGE_MARKER = {
   healthy: "url(#iw-ar-ok)",
@@ -1108,30 +1129,95 @@ const EDGE_MARKER = {
   down: "url(#iw-ar-down)",
 };
 
-// iw-down if either endpoint -- hub included -- is offline, iw-ok only if
-// both are healthy, iw-warn (degraded) for everything in between.
-function edgeHealth(hubClassification, leafClassification) {
-  if (hubClassification === "offline" || leafClassification === "offline") return "down";
-  if (hubClassification === "healthy" && leafClassification === "healthy") return "healthy";
+// iw-down if either endpoint is offline, iw-ok only if both are healthy,
+// iw-warn (degraded) for everything in between. Generalizes what used to
+// be a hub/leaf-specific rule to any parent/child pair in the tree -- a
+// link into an offline device reads as down regardless of which end of
+// the link that device is on. A pseudo node (WAN -- not a real device,
+// so nothing to classify) always counts as healthy so its one edge's
+// color depends only on the real device at its other end.
+function edgeHealth(sourceClassification, targetClassification) {
+  if (sourceClassification === "offline" || targetClassification === "offline") return "down";
+  if (sourceClassification === "healthy" && targetClassification === "healthy") return "healthy";
   return "degraded";
 }
 
-// Distance from a box's center to its edge along a unit direction vector
-// (dx, dy) -- used to stop each edge/arrow at the node box's boundary
-// instead of drawing through it.
-function boxEdgeDistance(dx, dy) {
-  const tx = dx !== 0 ? (TOPO_BOX_WIDTH / 2) / Math.abs(dx) : Infinity;
-  const ty = dy !== 0 ? (TOPO_BOX_HEIGHT / 2) / Math.abs(dy) : Infinity;
-  return Math.min(tx, ty);
+// Every device this hierarchy reaches, keyed by name -> its direct
+// children's names, built fresh from whatever /topology returns (not
+// hardcoded to today's fixture shape).
+function buildChildrenMap(connections) {
+  const map = {};
+  connections.forEach((c) => {
+    if (!map[c.source]) map[c.source] = [];
+    map[c.source].push(c.target);
+  });
+  return map;
 }
 
-function topoNodeBoxHtml(report, classification, x, y) {
-  const name = report ? report.name : "unknown";
-  const typeLabel = ((report && report.type) || "").replace(/_/g, " ").toUpperCase();
-  const latencyLabel = report ? formatLatency(report.latency_ms) : "—";
+// The one node that's a source somewhere but never a target anywhere --
+// the root of the tree (WAN, in this fixture, but computed rather than
+// assumed so a reshaped topology still lays out correctly).
+function findRoot(connections) {
+  const targets = new Set(connections.map((c) => c.target));
+  const root = connections.map((c) => c.source).find((s) => !targets.has(s));
+  return root || (connections[0] && connections[0].source);
+}
+
+// Left-to-right tree layout, computed rather than hand-placed: depth
+// (-> x) comes from a node's distance from the root; y is the average of
+// a node's children's y, with leaves claiming sequential slots -- the
+// same shape as a typical org chart. Returns {name: {depth, slot}} plus
+// the total leaf count (needed to size the canvas).
+function layoutTree(root, childrenMap) {
+  const positions = {};
+  let leafCount = 0;
+
+  function assignSlot(name) {
+    const kids = childrenMap[name] || [];
+    if (kids.length === 0) {
+      const slot = leafCount;
+      leafCount += 1;
+      positions[name] = { slot };
+      return slot;
+    }
+    const slots = kids.map(assignSlot);
+    const slot = slots.reduce((a, b) => a + b, 0) / slots.length;
+    positions[name] = { slot };
+    return slot;
+  }
+
+  function assignDepth(name, depth) {
+    positions[name].depth = depth;
+    (childrenMap[name] || []).forEach((c) => assignDepth(c, depth + 1));
+  }
+
+  assignSlot(root);
+  assignDepth(root, 0);
+  return { positions, leafCount };
+}
+
+function edgePath(x1, y1, x2, y2) {
+  if (Math.abs(y2 - y1) < 2) return `M ${x1} ${y1} H ${x2}`;
+  const midX = x1 + Math.max(20, (x2 - x1) / 2);
+  return `M ${x1} ${y1} H ${midX} V ${y2} H ${x2}`;
+}
+
+function topoNodeBoxHtml(name, device, classification, selected, x, y) {
+  // A pseudo node (no matching device, e.g. WAN) renders as a plain
+  // bordered label -- not clickable, no status of its own.
+  if (!device) {
+    return `
+      <foreignObject x="${x - TOPO_WAN_WIDTH / 2}" y="${y - TOPO_WAN_HEIGHT / 2}" width="${TOPO_WAN_WIDTH}" height="${TOPO_WAN_HEIGHT}">
+        <div xmlns="http://www.w3.org/1999/xhtml" class="topo-wan-box">${name}</div>
+      </foreignObject>
+    `;
+  }
+  const typeLabel = (device.type || "").replace(/_/g, " ").toUpperCase();
+  const latencyLabel = formatLatency(device.latency_ms);
+  const boxClass = `topo-node-box ${classification}${selected ? " selected" : ""}`;
   return `
     <foreignObject x="${x - TOPO_BOX_WIDTH / 2}" y="${y - TOPO_BOX_HEIGHT / 2}" width="${TOPO_BOX_WIDTH}" height="${TOPO_BOX_HEIGHT}">
-      <div xmlns="http://www.w3.org/1999/xhtml" class="topo-node-box" data-device-name="${name}">
+      <div xmlns="http://www.w3.org/1999/xhtml" class="${boxClass}" data-device-name="${name}">
         <div class="topo-node-row1">
           <span class="topo-node-dot ${classification}"></span>
           <span class="topo-node-name">${name}</span>
@@ -1155,52 +1241,44 @@ function renderTopology(topology) {
     return;
   }
 
-  // Single-hub fixture topology: every connection shares the same source.
-  const hubName = connections[0].source;
-  const leafNames = connections.map((c) => c.target);
+  const childrenMap = buildChildrenMap(connections);
+  const root = findRoot(connections);
+  const { positions, leafCount } = layoutTree(root, childrenMap);
 
-  const width = 900, height = 560;
-  const cx = width / 2, cy = height / 2;
-  const spokeRadius = Math.min(width, height) * 0.32;
+  const names = Object.keys(positions);
+  const maxDepth = Math.max(...names.map((n) => positions[n].depth));
+  const width = TOPO_MARGIN * 2 + maxDepth * TOPO_COL_WIDTH + TOPO_BOX_WIDTH;
+  const height = TOPO_MARGIN * 2 + leafCount * TOPO_ROW_HEIGHT;
 
-  const leafPositions = leafNames.map((name, i) => {
-    const angle = -Math.PI / 2 + (i * 2 * Math.PI) / leafNames.length;
-    return {
-      name,
-      x: cx + spokeRadius * Math.cos(angle),
-      y: cy + spokeRadius * Math.sin(angle),
-    };
+  names.forEach((name) => {
+    const p = positions[name];
+    p.x = TOPO_MARGIN + p.depth * TOPO_COL_WIDTH + TOPO_BOX_WIDTH / 2;
+    p.y = TOPO_MARGIN + p.slot * TOPO_ROW_HEIGHT + TOPO_ROW_HEIGHT / 2;
   });
 
-  const hubDevice = devicesByName[hubName];
-  const hubClassification = hubDevice ? classifyDevice(hubDevice) : "unknown";
+  const classificationOf = (name) => {
+    const device = devicesByName[name];
+    return device ? classifyDevice(device) : "healthy"; // pseudo node (e.g. WAN) counts as healthy
+  };
 
   const edges = connections.map((conn) => {
-    const leafPos = leafPositions.find((p) => p.name === conn.target);
-    const leafDevice = devicesByName[conn.target];
-    const leafClassification = leafDevice ? classifyDevice(leafDevice) : "unknown";
-    const health = edgeHealth(hubClassification, leafClassification);
+    const a = positions[conn.source], b = positions[conn.target];
+    if (!a || !b) return "";
+    const health = edgeHealth(classificationOf(conn.source), classificationOf(conn.target));
 
-    // Shorten the line at both ends to the boxes' edges (not centers) so
-    // the arrowhead lands right at the target box instead of under it.
-    const dx = leafPos.x - cx, dy = leafPos.y - cy;
-    const dist = Math.hypot(dx, dy);
-    const ux = dx / dist, uy = dy / dist;
-    const startOffset = boxEdgeDistance(ux, uy);
-    const endOffset = boxEdgeDistance(-ux, -uy);
-    const x1 = cx + ux * startOffset, y1 = cy + uy * startOffset;
-    const x2 = leafPos.x - ux * endOffset, y2 = leafPos.y - uy * endOffset;
+    const aWidth = devicesByName[conn.source] ? TOPO_BOX_WIDTH : TOPO_WAN_WIDTH;
+    const x1 = a.x + aWidth / 2, y1 = a.y;
+    const x2 = b.x - TOPO_BOX_WIDTH / 2 - 4, y2 = b.y;
 
-    return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="topo-edge ${health}" stroke-width="2" marker-end="${EDGE_MARKER[health]}" />`;
+    return `<path d="${edgePath(x1, y1, x2, y2)}" fill="none" class="topo-edge ${health}" stroke-width="${health === "down" ? 1.2 : 1.6}" stroke-dasharray="${health === "down" ? "2 4" : "4 4"}" marker-end="${EDGE_MARKER[health]}" />`;
   }).join("");
 
-  const leafBoxes = leafPositions.map((pos) => {
-    const device = devicesByName[pos.name];
-    const classification = device ? classifyDevice(device) : "unknown";
-    return topoNodeBoxHtml(device, classification, pos.x, pos.y);
+  const boxes = names.map((name) => {
+    const device = devicesByName[name] || null;
+    const classification = classificationOf(name);
+    const selected = !!device && selectedDevice === name;
+    return topoNodeBoxHtml(name, device, classification, selected, positions[name].x, positions[name].y);
   }).join("");
-
-  const hubBox = topoNodeBoxHtml(hubDevice, hubClassification, cx, cy);
 
   topologyGraphEl.innerHTML = `
     <svg viewBox="0 0 ${width} ${height}">
@@ -1210,8 +1288,7 @@ function renderTopology(topology) {
         <marker id="iw-ar-down" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--iw-down)" /></marker>
       </defs>
       ${edges}
-      ${hubBox}
-      ${leafBoxes}
+      ${boxes}
     </svg>
   `;
 
@@ -1219,10 +1296,7 @@ function renderTopology(topology) {
     node.addEventListener("click", () => {
       const name = node.dataset.deviceName;
       const device = devicesByName[name];
-      if (device) {
-        selectedDevice = name;
-        showPanel(device);
-      }
+      if (device) setSelectedDevice(name, device);
     });
   });
 }
@@ -1255,10 +1329,26 @@ setInterval(pollTopology, 5000);
 // --- click handling / side panel ---
 
 let selectedDevice = null;
+
+// Single entrypoint for "a device was picked," from any origin (a rack
+// row, a list row, a topology node, a drawer peer chip) -- keeps
+// selectedDevice, the open drawer, and the topology view's own selection
+// highlight (real click state, not just whatever last poll rendered) all
+// in sync from one place instead of three call sites drifting apart.
+// Passing a falsy device (the close button) clears the selection and the
+// highlight without opening anything.
+function setSelectedDevice(name, device) {
+  selectedDevice = name;
+  document.querySelectorAll(".topo-node-box").forEach((el) => {
+    el.classList.toggle("selected", el.dataset.deviceName === name);
+  });
+  if (device) showPanel(device);
+}
+
 const panel = document.getElementById("panel");
 document.getElementById("panel-close").addEventListener("click", () => {
   panel.classList.remove("open");
-  selectedDevice = null;
+  setSelectedDevice(null);
 });
 
 // Local-only UI flag: whether the drawer's ACK button has been toggled
@@ -1346,10 +1436,7 @@ function renderPeersAndBlast(report) {
       chip.className = "drawer-peer-chip";
       chip.innerHTML = `<span class="drawer-peer-dot ${peerClassification}"></span>${peerName}`;
       chip.addEventListener("click", () => {
-        if (peerReport) {
-          selectedDevice = peerName;
-          showPanel(peerReport);
-        }
+        if (peerReport) setSelectedDevice(peerName, peerReport);
       });
       peersEl.appendChild(chip);
     });

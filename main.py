@@ -12,7 +12,10 @@ from status import enforce_verified_up, validate_device_status
 from tools import check_device_status_with_retries
 
 INVENTORY = [
+    {"name": "edge-fw-01", "host": "192.168.1.2", "type": "firewall"},
     {"name": "core-switch-1", "host": "192.168.1.1", "type": "switch"},
+    {"name": "dist-switch-2", "host": "192.168.1.3", "type": "switch"},
+    {"name": "vm-host-03", "host": "192.168.1.4", "type": "hypervisor"},
     {"name": "server-room-ap", "host": "192.168.1.5", "type": "access_point"},
     {"name": "nas-01", "host": "192.168.1.20", "type": "server"},
     # Always errors (simulated) — exercises the retry-then-give-up stop rule.
@@ -21,12 +24,21 @@ INVENTORY = [
 
 # Fixture/manually-defined network topology for now — NOT auto-discovered.
 # Real topology discovery via SNMP/LLDP is planned as a later step (see
-# ROADMAP.md). core-switch-1 is the hub; source_port is the port on the
+# ROADMAP.md). Full hierarchy: WAN -> edge-fw-01 -> core-switch-1, which
+# fans out to three branches -- dist-switch-2 (itself branching to
+# server-room-ap and flaky-sensor), vm-host-03, and nas-01. "WAN" is a
+# fixture label for the internet uplink, not a monitored device -- it has
+# no source_port and never appears in INVENTORY, matching the design
+# reference's own "internet" pseudo-node. source_port is the port on the
 # source device that the target device is plugged into.
 CONNECTIONS = [
-    {"source": "core-switch-1", "source_port": 1, "target": "server-room-ap"},
-    {"source": "core-switch-1", "source_port": 2, "target": "nas-01"},
-    {"source": "core-switch-1", "source_port": 3, "target": "flaky-sensor"},
+    {"source": "WAN", "source_port": None, "target": "edge-fw-01"},
+    {"source": "edge-fw-01", "source_port": 1, "target": "core-switch-1"},
+    {"source": "core-switch-1", "source_port": 1, "target": "dist-switch-2"},
+    {"source": "core-switch-1", "source_port": 2, "target": "vm-host-03"},
+    {"source": "core-switch-1", "source_port": 3, "target": "nas-01"},
+    {"source": "dist-switch-2", "source_port": 1, "target": "server-room-ap"},
+    {"source": "dist-switch-2", "source_port": 2, "target": "flaky-sensor"},
 ]
 
 CHECK_INTERVAL_SECONDS = 10
