@@ -129,6 +129,18 @@ def get_topology():
     return {"connections": CONNECTIONS, "devices": devices}
 
 
+@app.post("/ping/{host}")
+def ping_device(host: str):
+    """On-demand probe triggered by the drawer's PING button.
+
+    Runs the exact same check_device_status_with_retries used by the
+    background check cycle — a real check, not a simulated one — but
+    does not write into _latest_status; the next scheduled cycle still
+    owns that shared state, so this is a read-only-to-the-dashboard probe.
+    """
+    return check_device_status_with_retries(host)
+
+
 class ChatRequest(BaseModel):
     message: str
 

@@ -209,43 +209,87 @@
     top: 0;
     right: 0;
     height: 100%;
-    width: 320px;
-    background: #1d2026;
-    color: #e6e8eb;
-    box-shadow: -2px 0 12px rgba(0,0,0,0.4);
+    width: 392px;
+    background: var(--iw-panel);
+    color: var(--iw-text);
+    border-left: 1px solid var(--iw-line);
+    box-shadow: -20px 0 44px rgba(0,0,0,0.42);
     transform: translateX(100%);
     transition: transform 0.2s ease-out;
-    padding: 20px;
     box-sizing: border-box;
     overflow-y: auto;
     z-index: 10;
+    font-family: 'IBM Plex Mono', monospace;
   }
   #panel.open { transform: translateX(0); }
-  #panel h2 { margin: 0 0 16px; font-size: 18px; }
-  #panel .row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #2b2f37; font-size: 13px; }
-  #panel .label { color: #9aa1ac; }
-  #panel .value { font-weight: 600; }
-  #panel .status-up { color: #3ddc84; }
-  #panel .status-down { color: #ff5c5c; }
-  #panel .status-unknown { color: #9aa1ac; }
-  #panel-close { position: absolute; top: 14px; right: 16px; cursor: pointer; color: #9aa1ac; background: none; border: none; font-size: 16px; }
 
-  #panel .ports-header {
+  .drawer-header { padding: 16px 18px 14px; border-bottom: 1px solid var(--iw-line); }
+  .drawer-header-row { display: flex; align-items: flex-start; gap: 12px; }
+  .drawer-header-main { flex: 1; min-width: 0; }
+  .drawer-name { font-size: 17px; font-weight: 600; letter-spacing: 0.02em; color: var(--iw-act); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .drawer-type { margin-top: 6px; font-size: 11px; letter-spacing: 0.12em; color: var(--iw-text-3); text-transform: uppercase; }
+  .drawer-close {
+    border: 1px solid var(--iw-line);
+    background: transparent;
+    color: var(--iw-text-3);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12px;
+    line-height: 1;
+    padding: 6px 8px;
+  }
+  .drawer-close:hover { border-color: var(--iw-act); color: var(--iw-act); }
+  .drawer-status-row { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
+  .drawer-checked { font-size: 11px; letter-spacing: 0.06em; color: var(--iw-text-3); }
+
+  .drawer-actions { display: flex; gap: 8px; padding: 14px 18px; border-bottom: 1px solid var(--iw-line-soft); }
+  .drawer-btn {
+    flex: 1;
+    border: 1px solid var(--iw-line);
+    cursor: pointer;
+    font-family: inherit;
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    padding: 10px 0;
+    background: transparent;
+    color: var(--iw-text);
+  }
+  .drawer-btn:hover:not(:disabled) { border-color: var(--iw-act); color: var(--iw-act); }
+  .drawer-btn.primary { border-color: var(--iw-act); background: var(--iw-act); color: var(--iw-on-act); }
+  .drawer-btn.primary:hover:not(:disabled) { filter: brightness(0.9); border-color: var(--iw-act); color: var(--iw-on-act); }
+  .drawer-btn.active { border-color: var(--iw-act); background: var(--iw-hover); color: var(--iw-act); }
+  .drawer-btn:disabled {
+    border-style: dashed;
+    color: var(--iw-text-3);
+    cursor: not-allowed;
+    opacity: 0.7;
+  }
+
+  .drawer-section { padding: 16px 18px; border-bottom: 1px solid var(--iw-line-soft); }
+  .drawer-label { font-size: 10px; letter-spacing: 0.14em; color: var(--iw-text-3); }
+  .drawer-lat-header { display: flex; align-items: baseline; justify-content: space-between; }
+  .drawer-lat-value { font-size: 21px; font-weight: 600; }
+  #panel-spark { margin-top: 10px; display: block; }
+
+  .drawer-facts { padding: 4px 18px 12px; }
+  .drawer-fact-row {
     display: flex;
     align-items: center;
-    gap: 6px;
-    margin-top: 18px;
-    padding-bottom: 4px;
-    color: #9aa1ac;
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
+    gap: 16px;
+    padding: 10px 0;
+    border-bottom: 1px dotted var(--iw-line-soft);
   }
-  #panel .info-tip {
+  .drawer-fact-row:last-child { border-bottom: none; }
+  .drawer-fact-key { font-size: 11px; letter-spacing: 0.1em; color: var(--iw-text-3); flex: none; width: 96px; }
+  .drawer-fact-value { font-size: 12px; color: var(--iw-text); margin-left: auto; text-align: right; }
+
+  .drawer-ports-header { display: flex; align-items: center; gap: 6px; margin-top: -2px; margin-bottom: 8px; }
+  .drawer-ports-header .info-tip {
     cursor: help;
-    color: #6b7280;
-    font-size: 12px;
-    border: 1px solid #3a3f47;
+    color: var(--iw-text-3);
+    font-size: 11px;
+    border: 1px solid var(--iw-line);
     border-radius: 50%;
     width: 14px;
     height: 14px;
@@ -254,21 +298,64 @@
     justify-content: center;
     line-height: 1;
   }
-  #panel .port-row {
+  .drawer-port-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 5px 0;
-    border-bottom: 1px solid #24272e;
+    padding: 6px 0;
+    border-bottom: 1px dotted var(--iw-line-soft);
     font-size: 12px;
   }
-  #panel .port-label { display: flex; align-items: center; gap: 8px; color: #c3c7ce; }
-  #panel .port-dot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
-  #panel .port-dot.status-up { background: #3ddc84; }
-  #panel .port-dot.status-down { background: #ff5c5c; }
-  #panel .port-dot.status-unknown { background: #6b6f76; }
-  #panel .port-status-text { font-weight: 600; }
-  #panel .ports-empty { color: #6b7280; font-size: 12px; padding: 6px 0; font-style: italic; }
+  .drawer-port-row:last-child { border-bottom: none; }
+  .drawer-port-label { display: flex; align-items: center; gap: 8px; color: var(--iw-text-2); }
+  .drawer-port-dot { width: 8px; height: 8px; flex-shrink: 0; }
+  .drawer-port-dot.up { background: var(--iw-ok); }
+  .drawer-port-dot.down { background: var(--iw-down); animation: iwblip 1.4s steps(2) infinite; }
+  .drawer-port-dot.unknown { background: var(--iw-text-3); }
+  .drawer-port-status { font-weight: 600; color: var(--iw-text-2); }
+  .drawer-ports-empty { color: var(--iw-text-3); font-size: 12px; padding: 6px 0; font-style: italic; }
+
+  .drawer-peers { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 11px; }
+  .drawer-peer-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 11px;
+    background: transparent;
+    border: 1px solid var(--iw-line);
+    color: var(--iw-text);
+    font-family: inherit;
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .drawer-peer-chip:hover { border-color: var(--iw-act); color: var(--iw-act); }
+  .drawer-peer-dot { width: 6px; height: 6px; flex-shrink: 0; }
+  .drawer-peer-dot.healthy { background: var(--iw-ok); }
+  .drawer-peer-dot.at-risk { background: var(--iw-warn); }
+  .drawer-peer-dot.offline { background: var(--iw-down); animation: iwblip 1.4s steps(2) infinite; }
+  .drawer-peer-dot.unknown { background: var(--iw-text-3); }
+  .drawer-peers-empty { font-size: 11px; color: var(--iw-text-3); font-style: italic; margin-top: 11px; }
+
+  .drawer-blast {
+    margin-top: 15px;
+    padding: 12px 14px;
+    background: transparent;
+    border: 1px solid var(--iw-line-soft);
+  }
+  .drawer-blast.active { background: rgba(255,107,74,0.08); border-color: var(--iw-down); }
+  .drawer-blast-title { font-size: 11px; font-weight: 600; letter-spacing: 0.14em; color: var(--iw-text-3); }
+  .drawer-blast.active .drawer-blast-title { color: var(--iw-down); }
+  .drawer-blast-text { margin-top: 7px; font-size: 12px; color: var(--iw-text-2); line-height: 1.6; }
+
+  .drawer-events { display: flex; flex-direction: column; margin-top: 10px; }
+  .drawer-event-row { display: flex; gap: 12px; padding: 9px 0; }
+  .drawer-event-dot { width: 6px; height: 6px; flex-shrink: 0; margin-top: 5px; }
+  .drawer-event-dot.healthy { background: var(--iw-ok); }
+  .drawer-event-dot.at-risk { background: var(--iw-warn); }
+  .drawer-event-dot.offline { background: var(--iw-down); animation: iwblip 1.4s steps(2) infinite; }
+  .drawer-event-dot.unknown { background: var(--iw-text-3); }
+  .drawer-event-text { font-size: 12px; color: var(--iw-text); line-height: 1.5; }
+  .drawer-event-time { font-size: 10px; letter-spacing: 0.08em; color: var(--iw-text-3); margin-top: 3px; }
 
   #topology-graph { position: absolute; inset: 0; }
   #topology-graph svg { width: 100%; height: 100%; overflow: visible; }
@@ -471,23 +558,59 @@
   </div>
 
   <div id="panel">
-    <button id="panel-close">✕</button>
-    <h2 id="panel-name">—</h2>
-    <div class="row"><span class="label">Host</span><span class="value" id="panel-host">—</span></div>
-    <div class="row"><span class="label">Status</span><span class="value" id="panel-status">—</span></div>
-    <div class="row"><span class="label">Latency</span><span class="value" id="panel-latency">—</span></div>
-    <div class="row"><span class="label">Last checked</span><span class="value" id="panel-last-checked">—</span></div>
-    <div class="row"><span class="label">Severity</span><span class="value" id="panel-severity">—</span></div>
-    <div class="row">
-      <span class="label">Port summary</span>
-      <span class="value" id="panel-port-summary">—</span>
+    <div class="drawer-header">
+      <div class="drawer-header-row">
+        <div class="drawer-header-main">
+          <div class="drawer-name" id="panel-name">—</div>
+          <div class="drawer-type" id="panel-type">—</div>
+        </div>
+        <button id="panel-close" class="drawer-close">✕</button>
+      </div>
+      <div class="drawer-status-row">
+        <span class="status-pill" id="panel-status-pill">—</span>
+        <span class="drawer-checked" id="panel-checked">—</span>
+      </div>
     </div>
 
-    <div class="ports-header">
-      Ports
-      <span class="info-tip" title="Simulated fixture data for now — not live SNMP data yet. Real per-port monitoring is planned as a later step.">ⓘ</span>
+    <div class="drawer-actions">
+      <button id="panel-ping" class="drawer-btn primary">PING</button>
+      <button id="panel-restart" class="drawer-btn" disabled title="No real remediation action exists yet — placeholder for a future integration.">RESTART</button>
+      <button id="panel-ack" class="drawer-btn">ACK</button>
     </div>
-    <div id="panel-ports-list"></div>
+
+    <div class="drawer-section">
+      <div class="drawer-lat-header">
+        <span class="drawer-label">LATENCY &middot; RECENT</span>
+        <span class="drawer-lat-value" id="panel-latency">—</span>
+      </div>
+      <svg id="panel-spark" viewBox="0 0 320 56" width="100%" height="56" preserveAspectRatio="none">
+        <polyline id="panel-spark-line" fill="none" stroke-width="1.6" points=""></polyline>
+      </svg>
+    </div>
+
+    <div class="drawer-section drawer-facts" id="panel-facts"></div>
+
+    <div class="drawer-section">
+      <div class="drawer-ports-header">
+        <span class="drawer-label">PORTS &middot; <span id="panel-port-summary">—</span></span>
+        <span class="info-tip" title="Simulated fixture data for now — not live SNMP data yet. Real per-port monitoring is planned as a later step.">ⓘ</span>
+      </div>
+      <div id="panel-ports-list"></div>
+    </div>
+
+    <div class="drawer-section">
+      <div class="drawer-label">CONNECTED PEERS</div>
+      <div class="drawer-peers" id="panel-peers"></div>
+      <div class="drawer-blast" id="panel-blast">
+        <div class="drawer-blast-title" id="panel-blast-title">BLAST RADIUS</div>
+        <div class="drawer-blast-text" id="panel-blast-text">—</div>
+      </div>
+    </div>
+
+    <div class="drawer-section" style="border-bottom: none; padding-bottom: 26px;">
+      <div class="drawer-label">RECENT EVENTS</div>
+      <div class="drawer-events" id="panel-events"></div>
+    </div>
   </div>
 
   <div id="chat-box">
@@ -556,6 +679,121 @@ const CLASSIFICATION_LABEL = {
 
 function formatLatency(ms) {
   return ms == null ? "—" : `${ms} ms`;
+}
+
+// Deterministic per-name hash — used only to seed fixture data below so
+// it's stable across re-renders instead of jittering every 5s.
+function seedFromName(name) {
+  let seed = 0;
+  for (const ch of name) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
+  return seed;
+}
+
+const SPARK_HISTORY_LEN = 12;
+const sparkHistory = new Map(); // device name -> array of latency samples (ms)
+
+// FIXTURE: the backend only keeps each device's latest check, not a
+// history, so there's nothing real to seed a sparkline from on first
+// view. Fabricate a short simulated run (deterministic per device) so
+// it isn't a flat line, then every subsequent /status poll appends a
+// real sample — the series becomes genuine history the longer the page
+// stays open.
+function pushLatencySample(name, latencyMs) {
+  let history = sparkHistory.get(name);
+  if (!history) {
+    const base = latencyMs == null ? 8 : latencyMs;
+    let seed = seedFromName(name);
+    history = Array.from({ length: SPARK_HISTORY_LEN - 1 }, () => {
+      seed = (seed * 1103515245 + 12345) >>> 0;
+      const jitter = ((seed % 100) / 100 - 0.5) * Math.max(base, 2) * 0.6;
+      return Math.max(0, base + jitter);
+    });
+    sparkHistory.set(name, history);
+  }
+  history.push(latencyMs == null ? 0 : latencyMs);
+  if (history.length > SPARK_HISTORY_LEN) history.shift();
+  return history;
+}
+
+const CLASSIFICATION_STROKE = {
+  healthy: "var(--iw-ok)",
+  "at-risk": "var(--iw-warn)",
+  offline: "var(--iw-down)",
+  unknown: "var(--iw-text-3)",
+};
+
+// FIXTURE: MODEL/FIRMWARE/SITE aren't tracked by any real inventory data
+// yet — these are placeholder values only (deterministic per device so
+// they don't change on every refresh). Needs real device data later.
+function fixtureFacts(report) {
+  const seed = seedFromName(report.name);
+  const typePrefix = (report.type || "dev").slice(0, 3).toUpperCase();
+  const model = `${typePrefix}-${100 + (seed % 800)}`;
+  const firmware = `v${1 + (seed % 4)}.${seed % 10}.${(Math.floor(seed / 16)) % 10}`;
+  return [
+    { k: "HOST", v: report.host },
+    { k: "TYPE", v: (report.type || "—").replace(/_/g, " ").toUpperCase() },
+    { k: "MODEL", v: model },
+    { k: "FIRMWARE", v: firmware },
+    { k: "SITE", v: "BARRIE HQ" },
+  ];
+}
+
+// FIXTURE: simulated log lines — no real event history is stored
+// anywhere yet, so these are generated from the device's current
+// classification rather than a real audit trail.
+function fixtureEvents(report, classification) {
+  const checked = new Date(report.last_checked);
+  const fmt = (offsetMinutes) => {
+    const t = new Date(checked.getTime() - offsetMinutes * 60000);
+    return Number.isNaN(t.getTime()) ? "—" : t.toLocaleTimeString();
+  };
+  const headline =
+    classification === "offline" ? "Second consecutive check failed — marked offline"
+    : classification === "at-risk" ? "Packet loss or a down port crossed the health threshold"
+    : classification === "unknown" ? "Check could not be verified this cycle"
+    : "Health check passed";
+  return [
+    { text: headline, time: fmt(0), classification },
+    { text: "Latency sample recorded", time: fmt(5), classification: "healthy" },
+    { text: "Configuration snapshot taken", time: fmt(120), classification: "healthy" },
+    { text: "Firmware verified", time: fmt(600), classification: "healthy" },
+  ];
+}
+
+// Every device this one connects to, in either direction — used for the
+// Connected Peers chips. Reuses the same /topology connections list the
+// hub-and-spoke graph itself is built from.
+function computePeers(name, connections) {
+  const peers = [];
+  connections.forEach((c) => {
+    if (c.source === name) peers.push(c.target);
+    else if (c.target === name) peers.push(c.source);
+  });
+  return peers;
+}
+
+// Blast radius: every device that depends on this one transitively,
+// walking only the directed source -> target edges (mirrors the
+// topology's hub-and-spoke shape, but works for any shape). A leaf with
+// no outgoing edges always has an empty blast radius.
+function computeDownstream(name, connections) {
+  const children = {};
+  connections.forEach((c) => {
+    if (!children[c.source]) children[c.source] = [];
+    children[c.source].push(c.target);
+  });
+  const out = [];
+  const walk = (n) => {
+    (children[n] || []).forEach((c) => {
+      if (!out.includes(c)) {
+        out.push(c);
+        walk(c);
+      }
+    });
+  };
+  walk(name);
+  return out;
 }
 
 // Flat CSS rack elevation: a bordered panel of device rows. The left bar
@@ -646,10 +884,20 @@ function updateStatusCounts(reports) {
   document.getElementById("count-unknown").textContent = counts.unknown;
 }
 
+// Keyed by device name — lets the drawer look up a peer/selected device's
+// latest report from anywhere (peer chips, the ping/ack handlers) without
+// re-fetching. Rebuilt on every /status poll.
+let latestReportsByName = {};
+
 async function pollStatus() {
   try {
     const res = await fetch("/status");
     const reports = await res.json();
+    latestReportsByName = {};
+    reports.forEach((r) => {
+      latestReportsByName[r.name] = r;
+      pushLatencySample(r.name, r.latency_ms);
+    });
     renderRackView(reports);
     renderListView(reports);
     updateStatusCounts(reports);
@@ -815,11 +1063,23 @@ function renderTopology(topology) {
   });
 }
 
+// The raw {source, source_port, target} connection list from the last
+// /topology poll — the drawer's Connected Peers/Blast Radius sections
+// read this directly rather than duplicating the topology fetch.
+let topologyConnections = [];
+
 async function pollTopology() {
   try {
     const res = await fetch("/topology");
     const topology = await res.json();
+    topologyConnections = topology.connections || [];
     renderTopology(topology);
+    // A device's peers/blast radius can only change when the connection
+    // list itself changes, but re-rendering an open drawer here is cheap
+    // and keeps it correct if that ever happens.
+    if (selectedDevice && latestReportsByName[selectedDevice]) {
+      showPanel(latestReportsByName[selectedDevice]);
+    }
   } catch (err) {
     console.error("failed to fetch /topology", err);
   }
@@ -837,44 +1097,191 @@ document.getElementById("panel-close").addEventListener("click", () => {
   selectedDevice = null;
 });
 
-function showPanel(data) {
-  document.getElementById("panel-name").textContent = data.name;
-  document.getElementById("panel-host").textContent = data.host;
+// Local-only UI flag: whether the drawer's ACK button has been toggled
+// for a device. Not tied to any real alerting backend — it resets on
+// page reload and is never sent to the server.
+const acknowledged = new Map();
 
-  const statusEl = document.getElementById("panel-status");
-  statusEl.textContent = data.status;
-  statusEl.className = "value status-" + data.status;
+// "13:52:07 · 12s ago" / "13:52:07 · failed" — real elapsed time computed
+// from the report's own last_checked, not fixture data.
+function formatCheckedLabel(report) {
+  const checkedAt = new Date(report.last_checked);
+  const timeLabel = Number.isNaN(checkedAt.getTime()) ? report.last_checked : checkedAt.toLocaleTimeString();
+  if (report.status === "down") return `CHECKED ${timeLabel} · FAILED`;
+  const secondsAgo = Math.max(0, Math.round((Date.now() - checkedAt.getTime()) / 1000));
+  return `CHECKED ${timeLabel} · ${secondsAgo}S AGO`;
+}
 
-  document.getElementById("panel-latency").textContent =
-    data.latency_ms == null ? "—" : `${data.latency_ms} ms`;
-  document.getElementById("panel-last-checked").textContent = data.last_checked;
-  document.getElementById("panel-severity").textContent = data.severity;
+function renderSparkline(history, classification) {
+  const max = Math.max(...history, 1);
+  const points = history
+    .map((v, i) => {
+      const x = (i * (320 / (history.length - 1))).toFixed(1);
+      const y = (52 - (v / max) * 46).toFixed(1);
+      return `${x},${y}`;
+    })
+    .join(" ");
+  const line = document.getElementById("panel-spark-line");
+  line.setAttribute("points", points);
+  line.setAttribute("stroke", CLASSIFICATION_STROKE[classification]);
+}
 
-  const ports = data.ports || [];
+function renderFacts(facts) {
+  const factsEl = document.getElementById("panel-facts");
+  factsEl.innerHTML = "";
+  facts.forEach((fact) => {
+    const row = document.createElement("div");
+    row.className = "drawer-fact-row";
+    row.innerHTML = `
+      <span class="drawer-fact-key">${fact.k}</span>
+      <span class="drawer-fact-value">${fact.v}</span>
+    `;
+    factsEl.appendChild(row);
+  });
+}
+
+function renderPorts(report) {
+  const ports = report.ports || [];
   document.getElementById("panel-port-summary").textContent = summarizePorts(ports);
 
   const portsList = document.getElementById("panel-ports-list");
   portsList.innerHTML = "";
   if (ports.length === 0) {
     const empty = document.createElement("div");
-    empty.className = "ports-empty";
+    empty.className = "drawer-ports-empty";
     empty.textContent = "No port data available yet.";
     portsList.appendChild(empty);
   } else {
     ports.forEach((port) => {
       const status = ["up", "down"].includes(port.status) ? port.status : "unknown";
       const row = document.createElement("div");
-      row.className = "port-row";
+      row.className = "drawer-port-row";
       row.innerHTML = `
-        <span class="port-label"><span class="port-dot status-${status}"></span>Port ${port.port}</span>
-        <span class="port-status-text status-${status}">${status}</span>
+        <span class="drawer-port-label"><span class="drawer-port-dot ${status}"></span>Port ${port.port}</span>
+        <span class="drawer-port-status">${status}</span>
       `;
       portsList.appendChild(row);
     });
   }
+}
+
+function renderPeersAndBlast(report) {
+  const peersEl = document.getElementById("panel-peers");
+  peersEl.innerHTML = "";
+  const peerNames = computePeers(report.name, topologyConnections);
+  if (peerNames.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "drawer-peers-empty";
+    empty.textContent = "No connections in the topology.";
+    peersEl.appendChild(empty);
+  } else {
+    peerNames.forEach((peerName) => {
+      const peerReport = latestReportsByName[peerName];
+      const peerClassification = peerReport ? classifyDevice(peerReport) : "unknown";
+      const chip = document.createElement("button");
+      chip.className = "drawer-peer-chip";
+      chip.innerHTML = `<span class="drawer-peer-dot ${peerClassification}"></span>${peerName}`;
+      chip.addEventListener("click", () => {
+        if (peerReport) {
+          selectedDevice = peerName;
+          showPanel(peerReport);
+        }
+      });
+      peersEl.appendChild(chip);
+    });
+  }
+
+  const downstream = computeDownstream(report.name, topologyConnections);
+  const blastEl = document.getElementById("panel-blast");
+  blastEl.classList.toggle("active", downstream.length > 0);
+  document.getElementById("panel-blast-text").textContent =
+    downstream.length > 0
+      ? `${downstream.length} device${downstream.length > 1 ? "s" : ""} lose connectivity if this fails: ${downstream.join(", ")}.`
+      : "Nothing downstream. A failure here is contained to this device.";
+}
+
+function renderEvents(report, classification) {
+  const eventsEl = document.getElementById("panel-events");
+  eventsEl.innerHTML = "";
+  fixtureEvents(report, classification).forEach((ev) => {
+    const row = document.createElement("div");
+    row.className = "drawer-event-row";
+    row.innerHTML = `
+      <span class="drawer-event-dot ${ev.classification}"></span>
+      <div>
+        <div class="drawer-event-text">${ev.text}</div>
+        <div class="drawer-event-time">${ev.time}</div>
+      </div>
+    `;
+    eventsEl.appendChild(row);
+  });
+}
+
+function updateAckButton() {
+  const btn = document.getElementById("panel-ack");
+  const on = !!acknowledged.get(selectedDevice);
+  btn.textContent = on ? "ACKNOWLEDGED" : "ACK";
+  btn.classList.toggle("active", on);
+}
+
+function showPanel(data) {
+  const classification = classifyDevice(data);
+  const typeLabel = (data.type || "").replace(/_/g, " ").toUpperCase();
+  const facts = fixtureFacts(data);
+
+  document.getElementById("panel-name").textContent = data.name;
+  document.getElementById("panel-type").textContent = `${typeLabel} · ${facts[2].v}`;
+
+  const pillEl = document.getElementById("panel-status-pill");
+  pillEl.className = `status-pill ${classification}`;
+  pillEl.textContent = CLASSIFICATION_LABEL[classification];
+  document.getElementById("panel-checked").textContent = formatCheckedLabel(data);
+
+  document.getElementById("panel-latency").textContent = formatLatency(data.latency_ms);
+  const history = sparkHistory.get(data.name) || pushLatencySample(data.name, data.latency_ms);
+  renderSparkline(history, classification);
+
+  renderFacts(facts);
+  renderPorts(data);
+  renderPeersAndBlast(data);
+  renderEvents(data, classification);
+  updateAckButton();
 
   panel.classList.add("open");
 }
+
+document.getElementById("panel-ping").addEventListener("click", async (event) => {
+  if (!selectedDevice) return;
+  const report = latestReportsByName[selectedDevice];
+  if (!report) return;
+
+  const btn = event.currentTarget;
+  btn.disabled = true;
+  const originalLabel = btn.textContent;
+  btn.textContent = "PINGING…";
+  try {
+    // A real check_device_status call, not simulated — hits the same
+    // retry-wrapped probe the background check cycle uses. Updates only
+    // this drawer's own fields; the next 5s /status poll remains the
+    // single source of truth for the rest of the app.
+    const res = await fetch(`/ping/${encodeURIComponent(report.host)}`, { method: "POST" });
+    const result = await res.json();
+    document.getElementById("panel-latency").textContent = formatLatency(result.latency_ms);
+    document.getElementById("panel-checked").textContent =
+      `CHECKED ${new Date(result.last_checked).toLocaleTimeString()} · JUST NOW`;
+  } catch (err) {
+    console.error("ping failed", err);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
+});
+
+document.getElementById("panel-ack").addEventListener("click", () => {
+  if (!selectedDevice) return;
+  acknowledged.set(selectedDevice, !acknowledged.get(selectedDevice));
+  updateAckButton();
+});
 
 // --- chat bar ---
 
