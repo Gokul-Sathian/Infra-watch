@@ -27,6 +27,8 @@ class DeviceStatus:
     # per-port status requires SNMP polling (planned as a later step, see
     # ROADMAP.md). Optional: [] means no per-port data for this device.
     ports: list = field(default_factory=list)
+    # From the inventory entry, e.g. "switch"/"access_point" — display only.
+    type: str = ""
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -82,6 +84,10 @@ def validate_device_status(result: dict) -> DeviceStatus:
         if entry["status"] not in VALID_STATUSES:
             raise InvalidDeviceStatus(f"invalid port status: {entry['status']!r}, must be one of {VALID_STATUSES}")
 
+    device_type = result.get("type", "")
+    if not isinstance(device_type, str):
+        raise InvalidDeviceStatus(f"type must be a string, got {device_type!r}")
+
     return DeviceStatus(
         name=name,
         host=host,
@@ -90,6 +96,7 @@ def validate_device_status(result: dict) -> DeviceStatus:
         last_checked=last_checked,
         severity=severity,
         ports=ports,
+        type=device_type,
     )
 
 

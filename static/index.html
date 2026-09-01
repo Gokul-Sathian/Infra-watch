@@ -105,8 +105,7 @@
     pointer-events: none;
     z-index: 3;
   }
-  #scene, #topology, #list-view { position: absolute; inset: 0; }
-  #scene { display: none; }
+  #rack, #topology, #list-view { position: absolute; inset: 0; }
   #topology { display: block; }
   #list-view {
     display: none;
@@ -116,6 +115,76 @@
     font-size: 13px;
     letter-spacing: 0.12em;
   }
+
+  @keyframes iwpulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+  #rack { display: none; overflow-y: auto; padding: 32px; }
+  #rack-panel {
+    max-width: 920px;
+    margin: 0 auto;
+    background: var(--iw-panel);
+    border: 1px solid var(--iw-line);
+  }
+  .rack-row {
+    display: flex;
+    align-items: stretch;
+    gap: 14px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--iw-line-soft);
+    cursor: pointer;
+  }
+  .rack-row:last-child { border-bottom: none; }
+  .rack-row:hover { background: var(--iw-hover); }
+  .rack-row-bar { width: 5px; flex-shrink: 0; }
+  .rack-row-bar.healthy { background: var(--iw-ok); }
+  .rack-row-bar.at-risk { background: var(--iw-warn); }
+  .rack-row-bar.offline { background: var(--iw-down); }
+  .rack-row-bar.unknown { background: var(--iw-text-3); }
+  .rack-row-name {
+    width: 160px;
+    flex-shrink: 0;
+    align-self: center;
+    font-weight: 600;
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .rack-row-leds { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
+  .rack-led { width: 8px; height: 8px; flex-shrink: 0; }
+  .rack-led.status-up { background: var(--iw-ok); animation: iwpulse 2.2s ease-in-out infinite; }
+  .rack-led.status-down { background: var(--iw-down); animation: iwblip 1.4s steps(2) infinite; }
+  .rack-led.status-unknown { background: var(--iw-text-3); }
+  .rack-row-meta {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    white-space: nowrap;
+  }
+  .rack-row-type {
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: var(--iw-text-3);
+    text-transform: uppercase;
+    width: 100px;
+    text-align: right;
+  }
+  .rack-row-latency { font-size: 12px; color: var(--iw-text-2); width: 60px; text-align: right; }
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    border: 1px solid;
+    white-space: nowrap;
+  }
+  .status-pill.healthy { border-color: var(--iw-ok); color: var(--iw-ok); }
+  .status-pill.at-risk { border-color: var(--iw-warn); color: var(--iw-warn); }
+  .status-pill.offline { border-color: var(--iw-down); color: var(--iw-down); }
+  .status-pill.unknown { border-style: dashed; border-color: var(--iw-line); color: var(--iw-text-3); }
 
   #panel {
     position: fixed;
@@ -293,7 +362,7 @@
   <div id="subbar">
     <div id="view-tabs">
       <button class="view-tab active" data-view="topology">TOPOLOGY</button>
-      <button class="view-tab" data-view="3d">RACK</button>
+      <button class="view-tab" data-view="rack">RACK</button>
       <button class="view-tab" data-view="list">LIST</button>
     </div>
 
@@ -309,7 +378,7 @@
 
   <div id="canvas-area">
     <div id="scanline"></div>
-    <div id="scene"></div>
+    <div id="rack"><div id="rack-panel"><div id="rack-rows"></div></div></div>
     <div id="topology"></div>
     <div id="list-view">LIST VIEW — NOT YET BUILT</div>
   </div>
@@ -343,21 +412,10 @@
   </div>
   <div id="chat-bar"><span class="dot"></span>infra-watch</div>
 
-<script type="importmap">
-{
-  "imports": {
-    "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
-  }
-}
-</script>
 <script type="module">
-import * as THREE from "three";
-
-// Hoisted here (used by the 3D scene's own sizing below, the view-tab
-// switcher, and the topology renderer) — the shell now gives #scene a
-// container smaller than the full viewport (below the top/sub bars), so
-// the renderer must size itself off this element, not window dimensions.
-const sceneEl = document.getElementById("scene");
+// Hoisted here — used by the view-tab switcher and each view's renderer.
+const rackEl = document.getElementById("rack");
+const rackRowsEl = document.getElementById("rack-rows");
 const topologyEl = document.getElementById("topology");
 const listViewEl = document.getElementById("list-view");
 
@@ -365,156 +423,10 @@ const STATUS_COLOR = {
   up: 0x3ddc84,
   down: 0xff5c5c,
   unknown: 0x6b6f76,
-  mixed: 0xff9800, // master LED only: some ports up, some down
+  mixed: 0xff9800, // master LED / topology node only: some ports up, some down
 };
 
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x14161a);
-
-function getSceneSize() {
-  return { width: sceneEl.clientWidth, height: sceneEl.clientHeight };
-}
-
-// #scene may start hidden (display:none) if Topology is the default tab,
-// in which case it has zero layout size — fall back to the window's
-// aspect ratio just so the camera/renderer aren't created degenerate.
-// resizeSceneRenderer() re-measures for real the moment #scene actually
-// becomes visible (see the tab-click handler below).
-const initialSize = getSceneSize();
-const camera = new THREE.PerspectiveCamera(
-  45,
-  (initialSize.width || window.innerWidth) / (initialSize.height || window.innerHeight),
-  0.1,
-  100
-);
-camera.position.set(0, 4.4, 15.5);
-camera.lookAt(0, 0.1, 0);
-
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setSize(initialSize.width || window.innerWidth, initialSize.height || window.innerHeight);
-renderer.setPixelRatio(window.devicePixelRatio);
-sceneEl.appendChild(renderer.domElement);
-
-function resizeSceneRenderer() {
-  const { width, height } = getSceneSize();
-  if (width === 0 || height === 0) return; // hidden right now — nothing to size to
-  camera.aspect = width / height;
-  camera.updateProjectionMatrix();
-  renderer.setSize(width, height);
-}
-
-scene.add(new THREE.AmbientLight(0xffffff, 0.4));
-const keyLight = new THREE.DirectionalLight(0xffffff, 1.0);
-keyLight.position.set(5, 8, 6);
-scene.add(keyLight);
-
-const floor = new THREE.Mesh(
-  new THREE.PlaneGeometry(60, 60),
-  new THREE.MeshStandardMaterial({ color: 0x1b1e24 })
-);
-floor.rotation.x = -Math.PI / 2;
-floor.position.y = -0.01;
-scene.add(floor);
-
-window.addEventListener("resize", resizeSceneRenderer);
-
-// A 1U rack switch: a wide, thin, shallow black chassis (~10:1 width:height)
-// with a recessed lighter-gray panel carrying a row of flat square port
-// LEDs, plus one distinct square LED near the left edge for overall status.
-const CHASSIS_WIDTH = 4.2, CHASSIS_HEIGHT = 0.42, CHASSIS_DEPTH = 1.3;
-const PANEL_WIDTH = CHASSIS_WIDTH * 0.58, PANEL_HEIGHT = CHASSIS_HEIGHT * 0.55;
-const PANEL_X = CHASSIS_WIDTH * 0.12;
-const OVERALL_LED_X = -CHASSIS_WIDTH / 2 + 0.28;
 const DEFAULT_PORT_LED_COUNT = 4; // used only when a device has no ports data at all
-const DEVICE_SPACING = CHASSIS_WIDTH + 1.0;
-
-const chassisGeometry = new THREE.BoxGeometry(CHASSIS_WIDTH, CHASSIS_HEIGHT, CHASSIS_DEPTH);
-const chassisMaterialBase = { color: 0x0c0c0e, roughness: 0.75, metalness: 0.2 };
-
-const panelGeometry = new THREE.BoxGeometry(PANEL_WIDTH, PANEL_HEIGHT, 0.02);
-const panelMaterialBase = { color: 0x53565e, roughness: 0.55, metalness: 0.15 };
-
-const ledGeometry = new THREE.BoxGeometry(0.09, 0.09, 0.015);
-const overallLedGeometry = new THREE.BoxGeometry(0.16, 0.16, 0.02);
-
-const raycaster = new THREE.Raycaster();
-const pointer = new THREE.Vector2();
-
-// device.name -> { group, chassisMesh, panelMesh, overallLed: {mesh, material}, ports: [{mesh, material}], label, data }
-const devices = new Map();
-let clock = new THREE.Clock();
-
-function buildDevice(report, index, total) {
-  const name = report.name;
-  const startX = -((total - 1) * DEVICE_SPACING) / 2;
-
-  const group = new THREE.Group();
-  group.position.set(startX + index * DEVICE_SPACING, CHASSIS_HEIGHT / 2, 0);
-
-  const chassisMaterial = new THREE.MeshStandardMaterial(chassisMaterialBase);
-  const chassisMesh = new THREE.Mesh(chassisGeometry, chassisMaterial);
-  chassisMesh.userData.deviceName = name;
-  group.add(chassisMesh);
-
-  const panelMaterial = new THREE.MeshStandardMaterial(panelMaterialBase);
-  const panelMesh = new THREE.Mesh(panelGeometry, panelMaterial);
-  panelMesh.position.set(PANEL_X, 0, CHASSIS_DEPTH / 2 + 0.005);
-  panelMesh.userData.deviceName = name;
-  group.add(panelMesh);
-
-  // One LED per real port when we have port data; falls back to a fixed
-  // dim placeholder row when a device has no per-port data at all (e.g.
-  // real-ping mode, or a device that couldn't be checked this cycle).
-  const portCount = (report.ports && report.ports.length > 0) ? report.ports.length : DEFAULT_PORT_LED_COUNT;
-  const ports = [];
-  const portRowWidth = PANEL_WIDTH * 0.7;
-  const portStartX = PANEL_X - portRowWidth / 2;
-  for (let i = 0; i < portCount; i++) {
-    const portMaterial = new THREE.MeshStandardMaterial({
-      color: STATUS_COLOR.unknown,
-      emissive: 0x000000,
-      emissiveIntensity: 0,
-      transparent: true,
-      opacity: 1,
-      roughness: 0.4,
-      metalness: 0.3,
-    });
-    const port = new THREE.Mesh(ledGeometry, portMaterial);
-    const portX = portCount > 1 ? portStartX + (i * portRowWidth) / (portCount - 1) : PANEL_X;
-    port.position.set(portX, 0, CHASSIS_DEPTH / 2 + 0.015);
-    port.userData.deviceName = name;
-    group.add(port);
-    ports.push({ mesh: port, material: portMaterial });
-  }
-
-  const overallLedMaterial = new THREE.MeshStandardMaterial({
-    color: STATUS_COLOR.unknown,
-    emissive: 0x000000,
-    emissiveIntensity: 0,
-    transparent: true,
-    opacity: 1,
-    roughness: 0.3,
-    metalness: 0.1,
-  });
-  const overallLedMesh = new THREE.Mesh(overallLedGeometry, overallLedMaterial);
-  overallLedMesh.position.set(OVERALL_LED_X, 0, CHASSIS_DEPTH / 2 + 0.02);
-  overallLedMesh.userData.deviceName = name;
-  group.add(overallLedMesh);
-
-  const label = makeLabelSprite(name);
-  label.position.set(0, CHASSIS_HEIGHT / 2 + 0.35, 0);
-  group.add(label);
-
-  scene.add(group);
-  return {
-    group,
-    chassisMesh,
-    panelMesh,
-    overallLed: { mesh: overallLedMesh, material: overallLedMaterial },
-    ports,
-    label,
-  };
-}
 
 // Master LED state is derived from the ports array, NOT the device's raw
 // status — this is a visual aggregation layer only; the device-level
@@ -540,60 +452,69 @@ function summarizePorts(ports) {
   return `${upCount} up / ${downCount} down`;
 }
 
-function makeLabelSprite(text) {
-  const canvas = document.createElement("canvas");
-  canvas.width = 256;
-  canvas.height = 64;
-  const ctx = canvas.getContext("2d");
-  ctx.fillStyle = "rgba(0,0,0,0)";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.font = "28px sans-serif";
-  ctx.fillStyle = "#e6e8eb";
-  ctx.textAlign = "center";
-  ctx.fillText(text, canvas.width / 2, canvas.height / 2 + 10);
-  const texture = new THREE.CanvasTexture(canvas);
-  const material = new THREE.SpriteMaterial({ map: texture, transparent: true });
-  const sprite = new THREE.Sprite(material);
-  sprite.scale.set(1.6, 0.4, 1);
-  return sprite;
-}
-
-function updateDevices(reports) {
-  const names = reports.map((r) => r.name);
-
-  reports.forEach((report, index) => {
-    let entry = devices.get(report.name);
-    if (!entry) {
-      entry = buildDevice(report, index, reports.length);
-      devices.set(report.name, entry);
-    }
-    entry.data = report;
-  });
-
-  // Drop devices no longer present in the inventory.
-  for (const [name, entry] of devices) {
-    if (!names.includes(name)) {
-      scene.remove(entry.group);
-      devices.delete(name);
-    }
-  }
-
-  if (selectedDevice && devices.has(selectedDevice)) {
-    showPanel(devices.get(selectedDevice).data);
-  }
-}
-
-// New display vocabulary for the status-count strip: HEALTHY / AT RISK /
-// OFFLINE / UNKNOWN — never the internal up/down/unknown data values as
-// display text. Reuses aggregateMasterState (already defined above for
-// the 3D master LED / topology nodes) rather than re-deriving "mixed"
-// separately — a device that's device-level "up" but has some ports down
-// is AT RISK, not HEALTHY.
+// New display vocabulary for the status-count strip and rack rows:
+// HEALTHY / AT RISK / OFFLINE / UNKNOWN — never the internal
+// up/down/unknown data values as display text. Reuses aggregateMasterState
+// (already defined above for the topology nodes) rather than re-deriving
+// "mixed" separately — a device that's device-level "up" but has some
+// ports down is AT RISK, not HEALTHY.
 function classifyDevice(report) {
   if (report.status === "down") return "offline";
   if (report.status === "unknown") return "unknown";
   const aggregate = aggregateMasterState(report.ports || []);
   return aggregate === "orange-blink" ? "at-risk" : "healthy";
+}
+
+const CLASSIFICATION_LABEL = {
+  healthy: "HEALTHY",
+  "at-risk": "AT RISK",
+  offline: "OFFLINE",
+  unknown: "UNKNOWN",
+};
+
+function formatLatency(ms) {
+  return ms == null ? "—" : `${ms} ms`;
+}
+
+// Flat CSS rack elevation: a bordered panel of device rows. The left bar
+// and the status pill both come from the same classifyDevice() call, so
+// they can never disagree on one row. Per-port LEDs reuse the exact same
+// three-state visual language as before (green soft-pulse / red
+// hard-blink / gray static), now as CSS animations instead of a Three.js
+// per-frame material loop.
+function renderRackView(reports) {
+  rackRowsEl.innerHTML = "";
+  reports.forEach((report) => {
+    const classification = classifyDevice(report);
+    const ports = report.ports || [];
+    const portCount = ports.length > 0 ? ports.length : DEFAULT_PORT_LED_COUNT;
+
+    const ledsHtml = Array.from({ length: portCount }, (_, i) => {
+      const status = ports[i] ? ports[i].status : "unknown";
+      const cls = ["up", "down"].includes(status) ? status : "unknown";
+      return `<span class="rack-led status-${cls}"></span>`;
+    }).join("");
+
+    const typeLabel = (report.type || "").replace(/_/g, " ").toUpperCase();
+
+    const row = document.createElement("div");
+    row.className = "rack-row";
+    row.innerHTML = `
+      <div class="rack-row-bar ${classification}"></div>
+      <div class="rack-row-name">${report.name}</div>
+      <div class="rack-row-leds">${ledsHtml}</div>
+      <div class="rack-row-meta">
+        <span class="rack-row-type">${typeLabel}</span>
+        <span class="rack-row-latency">${formatLatency(report.latency_ms)}</span>
+        <span class="status-pill ${classification}">${CLASSIFICATION_LABEL[classification]}</span>
+      </div>
+    `;
+    row.addEventListener("click", () => {
+      selectedDevice = report.name;
+      showPanel(report);
+    });
+    rackRowsEl.appendChild(row);
+  });
 }
 
 function updateStatusCounts(reports) {
@@ -609,8 +530,14 @@ async function pollStatus() {
   try {
     const res = await fetch("/status");
     const reports = await res.json();
-    updateDevices(reports);
+    renderRackView(reports);
     updateStatusCounts(reports);
+    // Keep an open detail panel in sync regardless of which view opened
+    // it — /status is polled every 5s independent of the active tab.
+    if (selectedDevice) {
+      const current = reports.find((r) => r.name === selectedDevice);
+      if (current) showPanel(current);
+    }
   } catch (err) {
     console.error("failed to fetch /status", err);
   }
@@ -628,14 +555,9 @@ document.querySelectorAll(".view-tab").forEach((btn) => {
     document.querySelectorAll(".view-tab").forEach((b) => b.classList.remove("active"));
     btn.classList.add("active");
     const view = btn.dataset.view;
-    sceneEl.style.display = view === "3d" ? "block" : "none";
+    rackEl.style.display = view === "rack" ? "block" : "none";
     topologyEl.style.display = view === "topology" ? "block" : "none";
     listViewEl.style.display = view === "list" ? "flex" : "none";
-    // #scene has zero layout size while display:none, so the renderer's
-    // buffer/camera aspect can only be fixed to the real container size
-    // right after it becomes visible again — reading clientWidth/Height
-    // here forces the browser to lay it out first.
-    if (view === "3d") resizeSceneRenderer();
   });
 });
 
@@ -800,102 +722,6 @@ function showPanel(data) {
 
   panel.classList.add("open");
 }
-
-renderer.domElement.addEventListener("click", (event) => {
-  const rect = renderer.domElement.getBoundingClientRect();
-  pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-  pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-  raycaster.setFromCamera(pointer, camera);
-  const hits = raycaster.intersectObjects(
-    Array.from(devices.values()).flatMap((e) => [
-      e.chassisMesh,
-      e.panelMesh,
-      e.overallLed.mesh,
-      ...e.ports.map((p) => p.mesh),
-    ])
-  );
-  if (hits.length > 0) {
-    const name = hits[0].object.userData.deviceName;
-    const entry = devices.get(name);
-    if (entry) {
-      selectedDevice = name;
-      showPanel(entry.data);
-    }
-  }
-});
-
-// --- animation loop ---
-// Per-port LEDs: green soft-pulse (up) / red hard-blink (down) / dim gray
-// static (unknown) — the same three-state language the master LED used
-// to use for device-level status.
-// Master LED: a separate 4-state aggregation over the ports array —
-// green pulse (all up), orange steady/no animation (mixed), red hard
-// blink (all down), gray static (any unknown, or no port data).
-
-function setLedState(material, t, state) {
-  if (state === "up") {
-    const wave = 0.5 + 0.5 * Math.sin(t * 2.2); // slow, soft cycle
-    material.color.setHex(STATUS_COLOR.up);
-    material.emissive.setHex(STATUS_COLOR.up);
-    material.emissiveIntensity = 0.3 + 0.7 * wave;
-    material.opacity = 0.7 + 0.3 * wave;
-  } else if (state === "down") {
-    const on = Math.sin(t * 2.0) > 0; // hard on/off blink
-    material.color.setHex(STATUS_COLOR.down);
-    material.emissive.setHex(STATUS_COLOR.down);
-    material.emissiveIntensity = on ? 1.0 : 0.0;
-    material.opacity = on ? 1.0 : 0.35;
-  } else {
-    material.color.setHex(STATUS_COLOR.unknown);
-    material.emissive.setHex(0x000000);
-    material.emissiveIntensity = 0;
-    material.opacity = 1;
-  }
-}
-
-function animate() {
-  requestAnimationFrame(animate);
-  const t = clock.getElapsedTime();
-
-  for (const entry of devices.values()) {
-    if (!entry.data) continue;
-    const ports = entry.data.ports || [];
-
-    entry.ports.forEach((portEntry, i) => {
-      const portStatus = ports[i] ? ports[i].status : "unknown";
-      setLedState(portEntry.material, t, portStatus);
-    });
-
-    const masterMaterial = entry.overallLed.material;
-    switch (aggregateMasterState(ports)) {
-      case "green-pulse":
-        setLedState(masterMaterial, t, "up");
-        break;
-      case "red-hard-blink":
-        setLedState(masterMaterial, t, "down");
-        break;
-      case "orange-blink": {
-        // Moderate blink: clearly a blink (not a smooth pulse like green),
-        // but slower and gentler than the red hard-blink — never fully
-        // dark, so a mixed-state device draws attention without reading
-        // as urgent as a full outage.
-        const on = Math.sin(t * 1.0) > 0; // half the blink rate of "down"
-        masterMaterial.color.setHex(STATUS_COLOR.mixed);
-        masterMaterial.emissive.setHex(STATUS_COLOR.mixed);
-        masterMaterial.emissiveIntensity = on ? 0.9 : 0.25;
-        masterMaterial.opacity = on ? 1.0 : 0.6;
-        break;
-      }
-      default: // gray
-        setLedState(masterMaterial, t, "unknown");
-    }
-  }
-
-  renderer.render(scene, camera);
-}
-
-animate();
 
 // --- chat bar ---
 
