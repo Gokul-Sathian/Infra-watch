@@ -252,15 +252,68 @@
   #panel .port-status-text { font-weight: 600; }
   #panel .ports-empty { color: #6b7280; font-size: 12px; padding: 6px 0; font-style: italic; }
 
-  #topology svg { width: 100%; height: 100%; }
-  #topology .topo-node { cursor: pointer; }
-  #topology .topo-node circle { stroke: #14161a; stroke-width: 3; }
-  #topology .topo-label {
-    fill: #e6e8eb;
-    font-size: 14px;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    text-anchor: middle;
+  #topology-graph { position: absolute; inset: 0; }
+  #topology-graph svg { width: 100%; height: 100%; overflow: visible; }
+
+  #topology-legend {
+    position: absolute;
+    top: 14px;
+    left: 20px;
+    right: 20px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 18px;
+    color: var(--iw-text-3);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    z-index: 2;
+    pointer-events: none;
   }
+  #topology-legend .legend-title { letter-spacing: 0.16em; color: var(--iw-text-2); }
+  #topology-legend .legend-item { display: flex; align-items: center; gap: 8px; }
+  #topology-legend .legend-swatch { width: 20px; height: 2px; }
+  #topology-legend .legend-swatch.healthy { background: var(--iw-ok); }
+  #topology-legend .legend-swatch.degraded { background: var(--iw-warn); }
+  #topology-legend .legend-swatch.down { background: var(--iw-down); }
+
+  .topo-node-box {
+    width: 172px;
+    height: 58px;
+    padding: 11px 13px;
+    background: var(--iw-panel);
+    border: 1px solid var(--iw-line);
+    font-family: 'IBM Plex Mono', monospace;
+    box-sizing: border-box;
+    cursor: pointer;
+  }
+  .topo-node-row1 { display: flex; align-items: center; gap: 9px; }
+  .topo-node-dot { width: 7px; height: 7px; flex-shrink: 0; }
+  .topo-node-dot.healthy { background: var(--iw-ok); }
+  .topo-node-dot.at-risk { background: var(--iw-warn); }
+  .topo-node-dot.offline { background: var(--iw-down); animation: iwblip 1.4s steps(2) infinite; }
+  .topo-node-dot.unknown { background: var(--iw-text-3); }
+  .topo-node-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--iw-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .topo-node-row2 {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 7px;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    color: var(--iw-text-3);
+  }
+  .topo-node-type { text-transform: uppercase; letter-spacing: 0.12em; }
+
+  .topo-edge.healthy { stroke: var(--iw-ok); }
+  .topo-edge.degraded { stroke: var(--iw-warn); }
+  .topo-edge.down { stroke: var(--iw-down); }
 
   #chat-bar {
     position: fixed;
@@ -379,7 +432,16 @@
   <div id="canvas-area">
     <div id="scanline"></div>
     <div id="rack"><div id="rack-panel"><div id="rack-rows"></div></div></div>
-    <div id="topology"></div>
+    <div id="topology">
+      <div id="topology-legend">
+        <span class="legend-title">LINK HEALTH</span>
+        <span class="legend-item"><span class="legend-swatch healthy"></span>UNDER 5 MS</span>
+        <span class="legend-item"><span class="legend-swatch degraded"></span>LATENCY OR LOSS</span>
+        <span class="legend-item"><span class="legend-swatch down"></span>LINK DOWN</span>
+        <span>ARROWS FOLLOW TRAFFIC DIRECTION &middot; CLICK A NODE FOR DETAIL</span>
+      </div>
+      <div id="topology-graph"></div>
+    </div>
     <div id="list-view">LIST VIEW — NOT YET BUILT</div>
   </div>
 
@@ -417,14 +479,8 @@
 const rackEl = document.getElementById("rack");
 const rackRowsEl = document.getElementById("rack-rows");
 const topologyEl = document.getElementById("topology");
+const topologyGraphEl = document.getElementById("topology-graph");
 const listViewEl = document.getElementById("list-view");
-
-const STATUS_COLOR = {
-  up: 0x3ddc84,
-  down: 0xff5c5c,
-  unknown: 0x6b6f76,
-  mixed: 0xff9800, // master LED / topology node only: some ports up, some down
-};
 
 const DEFAULT_PORT_LED_COUNT = 4; // used only when a device has no ports data at all
 
@@ -561,31 +617,57 @@ document.querySelectorAll(".view-tab").forEach((btn) => {
   });
 });
 
-// --- topology view (2D hub-and-spoke SVG) ---
-// Reuses aggregateMasterState (node color) and the same STATUS_COLOR
-// palette as the 3D master LED, and the same showPanel side panel — no
-// separate coloring or detail-panel logic for this view.
+// --- topology view (2D hub-and-spoke, restyled per the design system
+// reference) ---
+// Nodes and edges both reuse classifyDevice() -- the same classification
+// already driving the rack view's left bar/pill and the status-count
+// strip -- so none of these surfaces can ever disagree about a device's
+// state. Layout (center, radius, per-leaf angle) is unchanged from
+// before; only what's drawn at each position and along each edge changed.
 
-function cssColor(hex) {
-  return "#" + hex.toString(16).padStart(6, "0");
+const TOPO_BOX_WIDTH = 172, TOPO_BOX_HEIGHT = 58;
+
+const EDGE_MARKER = {
+  healthy: "url(#iw-ar-ok)",
+  degraded: "url(#iw-ar-warn)",
+  down: "url(#iw-ar-down)",
+};
+
+// iw-down if either endpoint -- hub included -- is offline, iw-ok only if
+// both are healthy, iw-warn (degraded) for everything in between.
+function edgeHealth(hubClassification, leafClassification) {
+  if (hubClassification === "offline" || leafClassification === "offline") return "down";
+  if (hubClassification === "healthy" && leafClassification === "healthy") return "healthy";
+  return "degraded";
 }
 
-function nodeColor(ports) {
-  const state = aggregateMasterState(ports);
-  if (state === "green-pulse") return cssColor(STATUS_COLOR.up);
-  if (state === "red-hard-blink") return cssColor(STATUS_COLOR.down);
-  if (state === "orange-blink") return cssColor(STATUS_COLOR.mixed);
-  return cssColor(STATUS_COLOR.unknown);
+// Distance from a box's center to its edge along a unit direction vector
+// (dx, dy) -- used to stop each edge/arrow at the node box's boundary
+// instead of drawing through it.
+function boxEdgeDistance(dx, dy) {
+  const tx = dx !== 0 ? (TOPO_BOX_WIDTH / 2) / Math.abs(dx) : Infinity;
+  const ty = dy !== 0 ? (TOPO_BOX_HEIGHT / 2) / Math.abs(dy) : Infinity;
+  return Math.min(tx, ty);
 }
 
-// Line color uses device-level status (not the ports aggregate): green
-// only if both ends are confirmed up, red if the hub itself is down
-// (that connection is effectively cut regardless of the leaf), orange
-// for everything else (exactly one end down/unknown).
-function connectionColor(hubStatus, leafStatus) {
-  if (hubStatus === "down") return cssColor(STATUS_COLOR.down);
-  if (hubStatus === "up" && leafStatus === "up") return cssColor(STATUS_COLOR.up);
-  return cssColor(STATUS_COLOR.mixed);
+function topoNodeBoxHtml(report, classification, x, y) {
+  const name = report ? report.name : "unknown";
+  const typeLabel = ((report && report.type) || "").replace(/_/g, " ").toUpperCase();
+  const latencyLabel = report ? formatLatency(report.latency_ms) : "—";
+  return `
+    <foreignObject x="${x - TOPO_BOX_WIDTH / 2}" y="${y - TOPO_BOX_HEIGHT / 2}" width="${TOPO_BOX_WIDTH}" height="${TOPO_BOX_HEIGHT}">
+      <div xmlns="http://www.w3.org/1999/xhtml" class="topo-node-box" data-device-name="${name}">
+        <div class="topo-node-row1">
+          <span class="topo-node-dot ${classification}"></span>
+          <span class="topo-node-name">${name}</span>
+        </div>
+        <div class="topo-node-row2">
+          <span class="topo-node-type">${typeLabel}</span>
+          <span>${latencyLabel}</span>
+        </div>
+      </div>
+    </foreignObject>
+  `;
 }
 
 function renderTopology(topology) {
@@ -594,7 +676,7 @@ function renderTopology(topology) {
   (topology.devices || []).forEach((d) => { devicesByName[d.name] = d; });
 
   if (connections.length === 0) {
-    topologyEl.innerHTML = '<div style="color:#6b7280; padding: 80px; text-align:center; font-size: 13px;">No topology data.</div>';
+    topologyGraphEl.innerHTML = '<div style="color: var(--iw-text-3); padding: 80px; text-align: center; font-size: 13px;">No topology data.</div>';
     return;
   }
 
@@ -605,7 +687,6 @@ function renderTopology(topology) {
   const width = 900, height = 560;
   const cx = width / 2, cy = height / 2;
   const spokeRadius = Math.min(width, height) * 0.32;
-  const hubR = 34, leafR = 26;
 
   const leafPositions = leafNames.map((name, i) => {
     const angle = -Math.PI / 2 + (i * 2 * Math.PI) / leafNames.length;
@@ -617,40 +698,49 @@ function renderTopology(topology) {
   });
 
   const hubDevice = devicesByName[hubName];
-  const hubColor = hubDevice ? nodeColor(hubDevice.ports) : cssColor(STATUS_COLOR.unknown);
-  const hubStatus = hubDevice ? hubDevice.status : "unknown";
+  const hubClassification = hubDevice ? classifyDevice(hubDevice) : "unknown";
 
-  const lines = connections.map((conn) => {
+  const edges = connections.map((conn) => {
     const leafPos = leafPositions.find((p) => p.name === conn.target);
     const leafDevice = devicesByName[conn.target];
-    const leafStatus = leafDevice ? leafDevice.status : "unknown";
-    const color = connectionColor(hubStatus, leafStatus);
-    return `<line x1="${cx}" y1="${cy}" x2="${leafPos.x}" y2="${leafPos.y}" stroke="${color}" stroke-width="3" />`;
+    const leafClassification = leafDevice ? classifyDevice(leafDevice) : "unknown";
+    const health = edgeHealth(hubClassification, leafClassification);
+
+    // Shorten the line at both ends to the boxes' edges (not centers) so
+    // the arrowhead lands right at the target box instead of under it.
+    const dx = leafPos.x - cx, dy = leafPos.y - cy;
+    const dist = Math.hypot(dx, dy);
+    const ux = dx / dist, uy = dy / dist;
+    const startOffset = boxEdgeDistance(ux, uy);
+    const endOffset = boxEdgeDistance(-ux, -uy);
+    const x1 = cx + ux * startOffset, y1 = cy + uy * startOffset;
+    const x2 = leafPos.x - ux * endOffset, y2 = leafPos.y - uy * endOffset;
+
+    return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="topo-edge ${health}" stroke-width="2" marker-end="${EDGE_MARKER[health]}" />`;
   }).join("");
 
-  const leafNodes = leafPositions.map((pos) => {
+  const leafBoxes = leafPositions.map((pos) => {
     const device = devicesByName[pos.name];
-    const color = device ? nodeColor(device.ports) : cssColor(STATUS_COLOR.unknown);
-    return `
-      <g class="topo-node" data-device-name="${pos.name}">
-        <circle cx="${pos.x}" cy="${pos.y}" r="${leafR}" fill="${color}" />
-        <text class="topo-label" x="${pos.x}" y="${pos.y + leafR + 18}">${pos.name}</text>
-      </g>
-    `;
+    const classification = device ? classifyDevice(device) : "unknown";
+    return topoNodeBoxHtml(device, classification, pos.x, pos.y);
   }).join("");
 
-  topologyEl.innerHTML = `
+  const hubBox = topoNodeBoxHtml(hubDevice, hubClassification, cx, cy);
+
+  topologyGraphEl.innerHTML = `
     <svg viewBox="0 0 ${width} ${height}">
-      ${lines}
-      <g class="topo-node" data-device-name="${hubName}">
-        <circle cx="${cx}" cy="${cy}" r="${hubR}" fill="${hubColor}" />
-        <text class="topo-label" x="${cx}" y="${cy + hubR + 20}">${hubName}</text>
-      </g>
-      ${leafNodes}
+      <defs>
+        <marker id="iw-ar-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--iw-ok)" /></marker>
+        <marker id="iw-ar-warn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--iw-warn)" /></marker>
+        <marker id="iw-ar-down" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--iw-down)" /></marker>
+      </defs>
+      ${edges}
+      ${hubBox}
+      ${leafBoxes}
     </svg>
   `;
 
-  topologyEl.querySelectorAll(".topo-node").forEach((node) => {
+  topologyGraphEl.querySelectorAll(".topo-node-box").forEach((node) => {
     node.addEventListener("click", () => {
       const name = node.dataset.deviceName;
       const device = devicesByName[name];
