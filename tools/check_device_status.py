@@ -60,6 +60,31 @@ _FIXTURE_RESULTS = {
             {"port": 4, "status": "up"},
         ],
     },
+    "192.168.1.2": {  # edge-fw-01 — every port up (healthy)
+        "status": "up", "latency_ms": 1.8,
+        "ports": [
+            {"port": 1, "status": "up"},
+            {"port": 2, "status": "up"},
+        ],
+    },
+    "192.168.1.3": {  # dist-switch-2 — one port down, rest up (at risk)
+        "status": "up", "latency_ms": 18.4,
+        "ports": [
+            {"port": 1, "status": "up"},
+            {"port": 2, "status": "up"},
+            {"port": 3, "status": "down"},
+            {"port": 4, "status": "up"},
+        ],
+    },
+    "192.168.1.4": {  # vm-host-03 — every port up (healthy)
+        "status": "up", "latency_ms": 2.4,
+        "ports": [
+            {"port": 1, "status": "up"},
+            {"port": 2, "status": "up"},
+            {"port": 3, "status": "up"},
+            {"port": 4, "status": "up"},
+        ],
+    },
     "192.168.1.5": {  # server-room-ap — every port down
         "status": "down", "latency_ms": None,
         "ports": [
