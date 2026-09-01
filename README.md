@@ -1,4 +1,4 @@
-# infra-watch
+# Infra-watch
 
 A local dashboard that monitors network and server-room device health and
 lets you ask about status via chat.
