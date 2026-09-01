@@ -107,14 +107,6 @@
   }
   #rack, #topology, #list-view { position: absolute; inset: 0; }
   #topology { display: block; }
-  #list-view {
-    display: none;
-    align-items: center;
-    justify-content: center;
-    color: var(--iw-text-3);
-    font-size: 13px;
-    letter-spacing: 0.12em;
-  }
 
   @keyframes iwpulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 
@@ -185,6 +177,32 @@
   .status-pill.at-risk { border-color: var(--iw-warn); color: var(--iw-warn); }
   .status-pill.offline { border-color: var(--iw-down); color: var(--iw-down); }
   .status-pill.unknown { border-style: dashed; border-color: var(--iw-line); color: var(--iw-text-3); }
+
+  #list-view { display: none; overflow-y: auto; padding: 20px 24px; }
+  #list-panel { border: 1px solid var(--iw-line); background: var(--iw-panel); }
+  .list-header, .list-row {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr 0.9fr 0.8fr 0.9fr 1.1fr;
+    gap: 16px;
+    align-items: center;
+    padding: 11px 18px;
+  }
+  .list-header {
+    background: var(--iw-panel-2);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    color: var(--iw-text-3);
+  }
+  .list-row { border-top: 1px solid var(--iw-line-soft); cursor: pointer; }
+  .list-row:hover { background: var(--iw-hover); }
+  .list-row-device { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .list-dot { width: 7px; height: 7px; flex-shrink: 0; }
+  .list-dot.healthy { background: var(--iw-ok); }
+  .list-dot.at-risk { background: var(--iw-warn); }
+  .list-dot.offline { background: var(--iw-down); animation: iwblip 1.4s steps(2) infinite; }
+  .list-dot.unknown { background: var(--iw-text-3); }
+  .list-row-name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .list-row-cell { font-size: 12px; color: var(--iw-text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   #panel {
     position: fixed;
@@ -442,7 +460,14 @@
       </div>
       <div id="topology-graph"></div>
     </div>
-    <div id="list-view">LIST VIEW — NOT YET BUILT</div>
+    <div id="list-view">
+      <div id="list-panel">
+        <div class="list-header">
+          <div>DEVICE</div><div>HOST</div><div>TYPE</div><div>LATENCY</div><div>LAST CHECKED</div><div>STATUS</div>
+        </div>
+        <div id="list-rows"></div>
+      </div>
+    </div>
   </div>
 
   <div id="panel">
@@ -481,6 +506,7 @@ const rackRowsEl = document.getElementById("rack-rows");
 const topologyEl = document.getElementById("topology");
 const topologyGraphEl = document.getElementById("topology-graph");
 const listViewEl = document.getElementById("list-view");
+const listRowsEl = document.getElementById("list-rows");
 
 const DEFAULT_PORT_LED_COUNT = 4; // used only when a device has no ports data at all
 
@@ -573,6 +599,44 @@ function renderRackView(reports) {
   });
 }
 
+// "13:45:10" from an ISO timestamp, falling back to the raw string if it
+// doesn't parse — display-only, matches local browser time.
+function formatLastChecked(iso) {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleTimeString();
+}
+
+// Flat table matching the rack/topology views' visual language: a
+// bordered panel, one row per device, name-dot + status pill both from
+// the same classifyDevice() call used everywhere else so this view can
+// never disagree with the others about a device's state.
+function renderListView(reports) {
+  listRowsEl.innerHTML = "";
+  reports.forEach((report) => {
+    const classification = classifyDevice(report);
+    const typeLabel = (report.type || "").replace(/_/g, " ").toUpperCase();
+
+    const row = document.createElement("div");
+    row.className = "list-row";
+    row.innerHTML = `
+      <div class="list-row-device">
+        <span class="list-dot ${classification}"></span>
+        <span class="list-row-name">${report.name}</span>
+      </div>
+      <div class="list-row-cell">${report.host}</div>
+      <div class="list-row-cell">${typeLabel}</div>
+      <div class="list-row-cell">${formatLatency(report.latency_ms)}</div>
+      <div class="list-row-cell">${formatLastChecked(report.last_checked)}</div>
+      <div><span class="status-pill ${classification}">${CLASSIFICATION_LABEL[classification]}</span></div>
+    `;
+    row.addEventListener("click", () => {
+      selectedDevice = report.name;
+      showPanel(report);
+    });
+    listRowsEl.appendChild(row);
+  });
+}
+
 function updateStatusCounts(reports) {
   const counts = { healthy: 0, "at-risk": 0, offline: 0, unknown: 0 };
   reports.forEach((r) => { counts[classifyDevice(r)]++; });
@@ -587,6 +651,7 @@ async function pollStatus() {
     const res = await fetch("/status");
     const reports = await res.json();
     renderRackView(reports);
+    renderListView(reports);
     updateStatusCounts(reports);
     // Keep an open detail panel in sync regardless of which view opened
     // it — /status is polled every 5s independent of the active tab.
@@ -603,8 +668,6 @@ pollStatus();
 setInterval(pollStatus, 5000);
 
 // --- view tabs (Topology / Rack / List) ---
-// LIST has no view built yet (out of scope this round) — its tab is real
-// and clickable, but shows an honest placeholder rather than a dead button.
 
 document.querySelectorAll(".view-tab").forEach((btn) => {
   btn.addEventListener("click", () => {
@@ -613,7 +676,7 @@ document.querySelectorAll(".view-tab").forEach((btn) => {
     const view = btn.dataset.view;
     rackEl.style.display = view === "rack" ? "block" : "none";
     topologyEl.style.display = view === "topology" ? "block" : "none";
-    listViewEl.style.display = view === "list" ? "flex" : "none";
+    listViewEl.style.display = view === "list" ? "block" : "none";
   });
 });
 
