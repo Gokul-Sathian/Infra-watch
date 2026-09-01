@@ -71,6 +71,7 @@ def run_check_cycle(inventory=None):
                 "latency_ms": check["latency_ms"],
                 "last_checked": check["last_checked"],
                 "severity": _SEVERITY_FOR_STATUS[check["status"]],
+                "type": device.get("type", ""),
                 # Simulated fixture data only, not real per-port telemetry
                 # (that needs SNMP polling — planned later). See ROADMAP.md.
                 "ports": check.get("ports", []),
@@ -126,6 +127,18 @@ def get_topology():
     with _status_lock:
         devices = _latest_status
     return {"connections": CONNECTIONS, "devices": devices}
+
+
+@app.post("/ping/{host}")
+def ping_device(host: str):
+    """On-demand probe triggered by the drawer's PING button.
+
+    Runs the exact same check_device_status_with_retries used by the
+    background check cycle — a real check, not a simulated one — but
+    does not write into _latest_status; the next scheduled cycle still
+    owns that shared state, so this is a read-only-to-the-dashboard probe.
+    """
+    return check_device_status_with_retries(host)
 
 
 class ChatRequest(BaseModel):

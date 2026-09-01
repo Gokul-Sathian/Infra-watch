@@ -8,7 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    /* BGO retro-terminal theme tokens — dark theme only for now. */
+    /* "Phosphor" — the retro-terminal dark theme, still the default. */
     --iw-bg: #0B0C0A;       --iw-panel: #111210;    --iw-panel-2: #191A15;
     --iw-line: #3A3520;     --iw-line-soft: #24231A;
     --iw-text: #F2E9C8;     --iw-text-2: #B3AA88;   --iw-text-3: #85806A;
@@ -16,6 +16,19 @@
     --iw-ok: #7CE38B;       --iw-warn: #FFDD35;     --iw-down: #FF6B4A;
     --iw-act: #FFDD35;      --iw-on-act: #14150F;
     --iw-scan: rgba(255,221,53,0.045);
+    --iw-down-soft: rgba(255,107,74,0.08);
+  }
+
+  /* "Paper" — the light theme, toggled via [data-theme="light"] on <html>. */
+  :root[data-theme="light"] {
+    --iw-bg: #FCF8F1;       --iw-panel: #FFFFFF;    --iw-panel-2: #F1EDE2;
+    --iw-line: #D9D3C4;     --iw-line-soft: #EAE5D9;
+    --iw-text: #23241F;     --iw-text-2: #55564C;   --iw-text-3: #86867A;
+    --iw-hover: rgba(250,173,60,0.12); --iw-canvas: #F7F2E6;
+    --iw-ok: #1E8A4A;       --iw-warn: #B07D0A;     --iw-down: #C43B1C;
+    --iw-act: #FAAD3C;      --iw-on-act: #23241F;
+    --iw-scan: rgba(35,36,31,0.03);
+    --iw-down-soft: rgba(196,59,28,0.10);
   }
 
   * { border-radius: 0; box-sizing: border-box; }
@@ -35,6 +48,8 @@
 
   #topbar {
     flex: none;
+    position: relative; /* above #panel's z-index so the theme toggle stays clickable while a drawer is open */
+    z-index: 11;
     display: flex;
     align-items: center;
     gap: 22px;
@@ -45,6 +60,19 @@
   .topbar-brand { display: flex; align-items: center; gap: 12px; }
   .topbar-accent { width: 10px; height: 16px; background: var(--iw-act); flex-shrink: 0; }
   .topbar-title { font-size: 14px; font-weight: 600; letter-spacing: 0.16em; color: var(--iw-act); }
+  .theme-toggle {
+    margin-left: auto;
+    border: 1px solid var(--iw-line);
+    background: transparent;
+    color: var(--iw-text-2);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    padding: 6px 12px;
+  }
+  .theme-toggle:hover { border-color: var(--iw-act); color: var(--iw-act); }
 
   #subbar {
     flex: none;
@@ -105,60 +133,191 @@
     pointer-events: none;
     z-index: 3;
   }
-  #scene, #topology, #list-view { position: absolute; inset: 0; }
-  #scene { display: none; }
+  #rack, #topology, #list-view { position: absolute; inset: 0; }
   #topology { display: block; }
-  #list-view {
-    display: none;
-    align-items: center;
-    justify-content: center;
-    color: var(--iw-text-3);
-    font-size: 13px;
-    letter-spacing: 0.12em;
+
+  @keyframes iwpulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+  #rack { display: none; overflow-y: auto; padding: 32px; }
+  #rack-panel {
+    max-width: 920px;
+    margin: 0 auto;
+    background: var(--iw-panel);
+    border: 1px solid var(--iw-line);
   }
+  .rack-row {
+    display: flex;
+    align-items: stretch;
+    gap: 14px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--iw-line-soft);
+    cursor: pointer;
+  }
+  .rack-row:last-child { border-bottom: none; }
+  .rack-row:hover { background: var(--iw-hover); }
+  .rack-row-bar { width: 5px; flex-shrink: 0; }
+  .rack-row-bar.healthy { background: var(--iw-ok); }
+  .rack-row-bar.at-risk { background: var(--iw-warn); }
+  .rack-row-bar.offline { background: var(--iw-down); }
+  .rack-row-bar.unknown { background: var(--iw-text-3); }
+  .rack-row-name {
+    width: 160px;
+    flex-shrink: 0;
+    align-self: center;
+    font-weight: 600;
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .rack-row-leds { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
+  .rack-led { width: 8px; height: 8px; flex-shrink: 0; }
+  .rack-led.status-up { background: var(--iw-ok); animation: iwpulse 2.2s ease-in-out infinite; }
+  .rack-led.status-down { background: var(--iw-down); animation: iwblip 1.4s steps(2) infinite; }
+  .rack-led.status-unknown { background: var(--iw-text-3); }
+  .rack-row-meta {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    white-space: nowrap;
+  }
+  .rack-row-type {
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: var(--iw-text-3);
+    text-transform: uppercase;
+    width: 100px;
+    text-align: right;
+  }
+  .rack-row-latency { font-size: 12px; color: var(--iw-text-2); width: 60px; text-align: right; }
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    border: 1px solid;
+    white-space: nowrap;
+  }
+  .status-pill.healthy { border-color: var(--iw-ok); color: var(--iw-ok); }
+  .status-pill.at-risk { border-color: var(--iw-warn); color: var(--iw-warn); }
+  .status-pill.offline { border-color: var(--iw-down); color: var(--iw-down); }
+  .status-pill.unknown { border-style: dashed; border-color: var(--iw-line); color: var(--iw-text-3); }
+
+  #list-view { display: none; overflow-y: auto; padding: 20px 24px; }
+  #list-panel { border: 1px solid var(--iw-line); background: var(--iw-panel); }
+  .list-header, .list-row {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr 0.9fr 0.8fr 0.9fr 1.1fr;
+    gap: 16px;
+    align-items: center;
+    padding: 11px 18px;
+  }
+  .list-header {
+    background: var(--iw-panel-2);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    color: var(--iw-text-3);
+  }
+  .list-row { border-top: 1px solid var(--iw-line-soft); cursor: pointer; }
+  .list-row:hover { background: var(--iw-hover); }
+  .list-row-device { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .list-dot { width: 7px; height: 7px; flex-shrink: 0; }
+  .list-dot.healthy { background: var(--iw-ok); }
+  .list-dot.at-risk { background: var(--iw-warn); }
+  .list-dot.offline { background: var(--iw-down); animation: iwblip 1.4s steps(2) infinite; }
+  .list-dot.unknown { background: var(--iw-text-3); }
+  .list-row-name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .list-row-cell { font-size: 12px; color: var(--iw-text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   #panel {
     position: fixed;
     top: 0;
     right: 0;
     height: 100%;
-    width: 320px;
-    background: #1d2026;
-    color: #e6e8eb;
-    box-shadow: -2px 0 12px rgba(0,0,0,0.4);
+    width: 392px;
+    background: var(--iw-panel);
+    color: var(--iw-text);
+    border-left: 1px solid var(--iw-line);
+    box-shadow: -20px 0 44px rgba(0,0,0,0.42);
     transform: translateX(100%);
     transition: transform 0.2s ease-out;
-    padding: 20px;
     box-sizing: border-box;
     overflow-y: auto;
     z-index: 10;
+    font-family: 'IBM Plex Mono', monospace;
   }
   #panel.open { transform: translateX(0); }
-  #panel h2 { margin: 0 0 16px; font-size: 18px; }
-  #panel .row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #2b2f37; font-size: 13px; }
-  #panel .label { color: #9aa1ac; }
-  #panel .value { font-weight: 600; }
-  #panel .status-up { color: #3ddc84; }
-  #panel .status-down { color: #ff5c5c; }
-  #panel .status-unknown { color: #9aa1ac; }
-  #panel-close { position: absolute; top: 14px; right: 16px; cursor: pointer; color: #9aa1ac; background: none; border: none; font-size: 16px; }
 
-  #panel .ports-header {
+  .drawer-header { padding: 16px 18px 14px; border-bottom: 1px solid var(--iw-line); }
+  .drawer-header-row { display: flex; align-items: flex-start; gap: 12px; }
+  .drawer-header-main { flex: 1; min-width: 0; }
+  .drawer-name { font-size: 17px; font-weight: 600; letter-spacing: 0.02em; color: var(--iw-act); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .drawer-type { margin-top: 6px; font-size: 11px; letter-spacing: 0.12em; color: var(--iw-text-3); text-transform: uppercase; }
+  .drawer-close {
+    border: 1px solid var(--iw-line);
+    background: transparent;
+    color: var(--iw-text-3);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12px;
+    line-height: 1;
+    padding: 6px 8px;
+  }
+  .drawer-close:hover { border-color: var(--iw-act); color: var(--iw-act); }
+  .drawer-status-row { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
+  .drawer-checked { font-size: 11px; letter-spacing: 0.06em; color: var(--iw-text-3); }
+
+  .drawer-actions { display: flex; gap: 8px; padding: 14px 18px; border-bottom: 1px solid var(--iw-line-soft); }
+  .drawer-btn {
+    flex: 1;
+    border: 1px solid var(--iw-line);
+    cursor: pointer;
+    font-family: inherit;
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    padding: 10px 0;
+    background: transparent;
+    color: var(--iw-text);
+  }
+  .drawer-btn:hover:not(:disabled) { border-color: var(--iw-act); color: var(--iw-act); }
+  .drawer-btn.primary { border-color: var(--iw-act); background: var(--iw-act); color: var(--iw-on-act); }
+  .drawer-btn.primary:hover:not(:disabled) { filter: brightness(0.9); border-color: var(--iw-act); color: var(--iw-on-act); }
+  .drawer-btn.active { border-color: var(--iw-act); background: var(--iw-hover); color: var(--iw-act); }
+  .drawer-btn:disabled {
+    border-style: dashed;
+    color: var(--iw-text-3);
+    cursor: not-allowed;
+    opacity: 0.7;
+  }
+
+  .drawer-section { padding: 16px 18px; border-bottom: 1px solid var(--iw-line-soft); }
+  .drawer-label { font-size: 10px; letter-spacing: 0.14em; color: var(--iw-text-3); }
+  .drawer-lat-header { display: flex; align-items: baseline; justify-content: space-between; }
+  .drawer-lat-value { font-size: 21px; font-weight: 600; }
+  #panel-spark { margin-top: 10px; display: block; }
+
+  .drawer-facts { padding: 4px 18px 12px; }
+  .drawer-fact-row {
     display: flex;
     align-items: center;
-    gap: 6px;
-    margin-top: 18px;
-    padding-bottom: 4px;
-    color: #9aa1ac;
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
+    gap: 16px;
+    padding: 10px 0;
+    border-bottom: 1px dotted var(--iw-line-soft);
   }
-  #panel .info-tip {
+  .drawer-fact-row:last-child { border-bottom: none; }
+  .drawer-fact-key { font-size: 11px; letter-spacing: 0.1em; color: var(--iw-text-3); flex: none; width: 96px; }
+  .drawer-fact-value { font-size: 12px; color: var(--iw-text); margin-left: auto; text-align: right; }
+
+  .drawer-ports-header { display: flex; align-items: center; gap: 6px; margin-top: -2px; margin-bottom: 8px; }
+  .drawer-ports-header .info-tip {
     cursor: help;
-    color: #6b7280;
-    font-size: 12px;
-    border: 1px solid #3a3f47;
+    color: var(--iw-text-3);
+    font-size: 11px;
+    border: 1px solid var(--iw-line);
     border-radius: 50%;
     width: 14px;
     height: 14px;
@@ -167,119 +326,229 @@
     justify-content: center;
     line-height: 1;
   }
-  #panel .port-row {
+  .drawer-port-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 5px 0;
-    border-bottom: 1px solid #24272e;
+    padding: 6px 0;
+    border-bottom: 1px dotted var(--iw-line-soft);
     font-size: 12px;
   }
-  #panel .port-label { display: flex; align-items: center; gap: 8px; color: #c3c7ce; }
-  #panel .port-dot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
-  #panel .port-dot.status-up { background: #3ddc84; }
-  #panel .port-dot.status-down { background: #ff5c5c; }
-  #panel .port-dot.status-unknown { background: #6b6f76; }
-  #panel .port-status-text { font-weight: 600; }
-  #panel .ports-empty { color: #6b7280; font-size: 12px; padding: 6px 0; font-style: italic; }
+  .drawer-port-row:last-child { border-bottom: none; }
+  .drawer-port-label { display: flex; align-items: center; gap: 8px; color: var(--iw-text-2); }
+  .drawer-port-dot { width: 8px; height: 8px; flex-shrink: 0; }
+  .drawer-port-dot.up { background: var(--iw-ok); }
+  .drawer-port-dot.down { background: var(--iw-down); animation: iwblip 1.4s steps(2) infinite; }
+  .drawer-port-dot.unknown { background: var(--iw-text-3); }
+  .drawer-port-status { font-weight: 600; color: var(--iw-text-2); }
+  .drawer-ports-empty { color: var(--iw-text-3); font-size: 12px; padding: 6px 0; font-style: italic; }
 
-  #topology svg { width: 100%; height: 100%; }
-  #topology .topo-node { cursor: pointer; }
-  #topology .topo-node circle { stroke: #14161a; stroke-width: 3; }
-  #topology .topo-label {
-    fill: #e6e8eb;
-    font-size: 14px;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    text-anchor: middle;
+  .drawer-peers { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 11px; }
+  .drawer-peer-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 11px;
+    background: transparent;
+    border: 1px solid var(--iw-line);
+    color: var(--iw-text);
+    font-family: inherit;
+    font-size: 11px;
+    cursor: pointer;
   }
+  .drawer-peer-chip:hover { border-color: var(--iw-act); color: var(--iw-act); }
+  .drawer-peer-dot { width: 6px; height: 6px; flex-shrink: 0; }
+  .drawer-peer-dot.healthy { background: var(--iw-ok); }
+  .drawer-peer-dot.at-risk { background: var(--iw-warn); }
+  .drawer-peer-dot.offline { background: var(--iw-down); animation: iwblip 1.4s steps(2) infinite; }
+  .drawer-peer-dot.unknown { background: var(--iw-text-3); }
+  .drawer-peers-empty { font-size: 11px; color: var(--iw-text-3); font-style: italic; margin-top: 11px; }
 
-  #chat-bar {
+  .drawer-blast {
+    margin-top: 15px;
+    padding: 12px 14px;
+    background: transparent;
+    border: 1px solid var(--iw-line-soft);
+  }
+  .drawer-blast.active { background: var(--iw-down-soft); border-color: var(--iw-down); }
+  .drawer-blast-title { font-size: 11px; font-weight: 600; letter-spacing: 0.14em; color: var(--iw-text-3); }
+  .drawer-blast.active .drawer-blast-title { color: var(--iw-down); }
+  .drawer-blast-text { margin-top: 7px; font-size: 12px; color: var(--iw-text-2); line-height: 1.6; }
+
+  .drawer-events { display: flex; flex-direction: column; margin-top: 10px; }
+  .drawer-event-row { display: flex; gap: 12px; padding: 9px 0; }
+  .drawer-event-dot { width: 6px; height: 6px; flex-shrink: 0; margin-top: 5px; }
+  .drawer-event-dot.healthy { background: var(--iw-ok); }
+  .drawer-event-dot.at-risk { background: var(--iw-warn); }
+  .drawer-event-dot.offline { background: var(--iw-down); animation: iwblip 1.4s steps(2) infinite; }
+  .drawer-event-dot.unknown { background: var(--iw-text-3); }
+  .drawer-event-text { font-size: 12px; color: var(--iw-text); line-height: 1.5; }
+  .drawer-event-time { font-size: 10px; letter-spacing: 0.08em; color: var(--iw-text-3); margin-top: 3px; }
+
+  #topology-graph { position: absolute; inset: 0; }
+  #topology-graph svg { width: 100%; height: 100%; overflow: visible; }
+
+  #topology-legend {
+    position: absolute;
+    top: 14px;
+    left: 20px;
+    right: 20px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 18px;
+    color: var(--iw-text-3);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    z-index: 2;
+    pointer-events: none;
+  }
+  #topology-legend .legend-title { letter-spacing: 0.16em; color: var(--iw-text-2); }
+  #topology-legend .legend-item { display: flex; align-items: center; gap: 8px; }
+  #topology-legend .legend-swatch { width: 20px; height: 2px; }
+  #topology-legend .legend-swatch.healthy { background: var(--iw-ok); }
+  #topology-legend .legend-swatch.degraded { background: var(--iw-warn); }
+  #topology-legend .legend-swatch.down { background: var(--iw-down); }
+
+  .topo-node-box {
+    width: 172px;
+    height: 58px;
+    padding: 11px 13px;
+    background: var(--iw-panel);
+    border: 1px solid var(--iw-line);
+    font-family: 'IBM Plex Mono', monospace;
+    box-sizing: border-box;
+    cursor: pointer;
+  }
+  .topo-node-row1 { display: flex; align-items: center; gap: 9px; }
+  .topo-node-dot { width: 7px; height: 7px; flex-shrink: 0; }
+  .topo-node-dot.healthy { background: var(--iw-ok); }
+  .topo-node-dot.at-risk { background: var(--iw-warn); }
+  .topo-node-dot.offline { background: var(--iw-down); animation: iwblip 1.4s steps(2) infinite; }
+  .topo-node-dot.unknown { background: var(--iw-text-3); }
+  .topo-node-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--iw-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .topo-node-row2 {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 7px;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    color: var(--iw-text-3);
+  }
+  .topo-node-type { text-transform: uppercase; letter-spacing: 0.12em; }
+
+  .topo-edge.healthy { stroke: var(--iw-ok); }
+  .topo-edge.degraded { stroke: var(--iw-warn); }
+  .topo-edge.down { stroke: var(--iw-down); }
+
+  @keyframes iwcaret { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+
+  #agent-dock {
     position: fixed;
     left: 50%;
     bottom: 0;
     transform: translateX(-50%);
-    width: 360px;
-    height: 44px;
-    background: #1d2026;
-    border: 1px solid #2b2f37;
-    border-bottom: none;
-    border-radius: 8px 8px 0 0;
-    color: #e6e8eb;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
     z-index: 20;
+    font-family: 'IBM Plex Mono', monospace;
+  }
+
+  /* Collapsed: a slim bar. Expanded: a bordered panel above it. Only one
+     is ever in the layout at a time -- no separate slide animation, just
+     a display swap keyed off .open. */
+  #agent-dock #chat-bar { display: flex; }
+  #agent-dock.open #chat-bar { display: none; }
+  #agent-dock #chat-box { display: none; }
+  #agent-dock.open #chat-box { display: flex; }
+
+  #chat-bar {
+    align-items: center;
+    gap: 12px;
+    padding: 10px 18px;
+    background: var(--iw-panel);
+    border: 1px solid var(--iw-line);
+    border-bottom: 0;
+    box-shadow: 0 -10px 28px rgba(0,0,0,0.3);
+    cursor: pointer;
+    font-family: inherit;
+    color: var(--iw-text);
     user-select: none;
   }
-  #chat-bar .dot { width: 8px; height: 8px; border-radius: 50%; background: #3ddc84; }
+  #chat-bar:hover { border-color: var(--iw-act); }
+  .dock-dot { width: 7px; height: 7px; flex-shrink: 0; background: var(--iw-ok); }
+  .dock-title { font-size: 12px; font-weight: 600; letter-spacing: 0.14em; color: var(--iw-act); }
+  .dock-status { font-size: 12px; color: var(--iw-text-2); }
+  .dock-caret { width: 8px; height: 14px; flex-shrink: 0; background: var(--iw-act); animation: iwcaret 1s steps(1) infinite; }
 
   #chat-box {
-    position: fixed;
-    left: 50%;
-    bottom: 44px;
-    transform: translateX(-50%);
-    width: 360px;
-    height: 380px;
-    background: #1d2026;
-    border: 1px solid #2b2f37;
-    border-bottom: none;
-    border-radius: 8px 8px 0 0;
-    box-shadow: 0 -4px 16px rgba(0,0,0,0.4);
-    color: #e6e8eb;
-    display: flex;
     flex-direction: column;
-    z-index: 19;
-    max-height: 0;
-    overflow: hidden;
-    opacity: 0;
-    transition: max-height 0.2s ease-out, opacity 0.15s ease-out;
+    width: 520px;
+    background: var(--iw-panel);
+    border: 1px solid var(--iw-line);
+    border-bottom: 0;
+    box-shadow: 0 -14px 40px rgba(0,0,0,0.35);
+    color: var(--iw-text);
   }
-  #chat-box.open { max-height: 380px; opacity: 1; }
+
+  #chat-box-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--iw-line-soft);
+  }
+  .dock-toggle {
+    margin-left: auto;
+    border: 1px solid var(--iw-line);
+    background: transparent;
+    color: var(--iw-text-3);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 11px;
+    padding: 4px 8px;
+  }
+  .dock-toggle:hover { border-color: var(--iw-act); color: var(--iw-act); }
 
   #chat-history {
-    flex: 1;
-    overflow-y: auto;
-    padding: 12px;
-    font-size: 13px;
+    padding: 14px;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 12px;
+    max-height: 260px;
+    overflow-y: auto;
+    font-size: 12px;
+    line-height: 1.6;
   }
-  #chat-history .msg { max-width: 85%; padding: 6px 10px; border-radius: 10px; line-height: 1.4; }
-  #chat-history .msg.user { align-self: flex-end; background: #2b6ef2; color: #fff; }
-  #chat-history .msg.agent { align-self: flex-start; background: #2b2f37; color: #e6e8eb; }
+  #chat-history .msg.user { color: var(--iw-text-2); }
+  #chat-history .msg.user .msg-prompt { color: var(--iw-act); margin-right: 6px; }
+  #chat-history .msg.agent { padding-left: 14px; border-left: 1px solid var(--iw-line); color: var(--iw-text); }
   #chat-history .msg.pending { opacity: 0.6; font-style: italic; }
 
   #chat-form {
     display: flex;
-    gap: 6px;
-    padding: 10px;
-    border-top: 1px solid #2b2f37;
+    align-items: center;
+    gap: 10px;
+    padding: 11px 14px;
+    border-top: 1px solid var(--iw-line-soft);
   }
+  .dock-prompt { color: var(--iw-act); font-size: 13px; flex-shrink: 0; }
   #chat-input {
     flex: 1;
-    background: #14161a;
-    border: 1px solid #2b2f37;
-    border-radius: 6px;
-    padding: 8px 10px;
-    color: #e6e8eb;
-    font-size: 13px;
-  }
-  #chat-input:focus { outline: none; border-color: #2b6ef2; }
-  #chat-send {
-    background: #2b6ef2;
+    background: transparent;
     border: none;
-    border-radius: 6px;
-    color: #fff;
-    padding: 8px 14px;
-    font-size: 13px;
-    cursor: pointer;
+    color: var(--iw-text);
+    font-family: inherit;
+    font-size: 12px;
   }
-  #chat-send:disabled { opacity: 0.5; cursor: default; }
+  #chat-input::placeholder { color: var(--iw-text-3); }
+  #chat-input:focus { outline: none; }
+  #chat-input:disabled { opacity: 0.6; }
 </style>
 </head>
 <body>
@@ -288,12 +557,13 @@
       <div class="topbar-accent"></div>
       <div class="topbar-title">INFRA-WATCH</div>
     </div>
+    <button id="theme-toggle" class="theme-toggle" title="Switch theme">PAPER</button>
   </div>
 
   <div id="subbar">
     <div id="view-tabs">
       <button class="view-tab active" data-view="topology">TOPOLOGY</button>
-      <button class="view-tab" data-view="3d">RACK</button>
+      <button class="view-tab" data-view="rack">RACK</button>
       <button class="view-tab" data-view="list">LIST</button>
     </div>
 
@@ -309,212 +579,136 @@
 
   <div id="canvas-area">
     <div id="scanline"></div>
-    <div id="scene"></div>
-    <div id="topology"></div>
-    <div id="list-view">LIST VIEW — NOT YET BUILT</div>
+    <div id="rack"><div id="rack-panel"><div id="rack-rows"></div></div></div>
+    <div id="topology">
+      <div id="topology-legend">
+        <span class="legend-title">LINK HEALTH</span>
+        <span class="legend-item"><span class="legend-swatch healthy"></span>UNDER 5 MS</span>
+        <span class="legend-item"><span class="legend-swatch degraded"></span>LATENCY OR LOSS</span>
+        <span class="legend-item"><span class="legend-swatch down"></span>LINK DOWN</span>
+        <span>ARROWS FOLLOW TRAFFIC DIRECTION &middot; CLICK A NODE FOR DETAIL</span>
+      </div>
+      <div id="topology-graph"></div>
+    </div>
+    <div id="list-view">
+      <div id="list-panel">
+        <div class="list-header">
+          <div>DEVICE</div><div>HOST</div><div>TYPE</div><div>LATENCY</div><div>LAST CHECKED</div><div>STATUS</div>
+        </div>
+        <div id="list-rows"></div>
+      </div>
+    </div>
   </div>
 
   <div id="panel">
-    <button id="panel-close">✕</button>
-    <h2 id="panel-name">—</h2>
-    <div class="row"><span class="label">Host</span><span class="value" id="panel-host">—</span></div>
-    <div class="row"><span class="label">Status</span><span class="value" id="panel-status">—</span></div>
-    <div class="row"><span class="label">Latency</span><span class="value" id="panel-latency">—</span></div>
-    <div class="row"><span class="label">Last checked</span><span class="value" id="panel-last-checked">—</span></div>
-    <div class="row"><span class="label">Severity</span><span class="value" id="panel-severity">—</span></div>
-    <div class="row">
-      <span class="label">Port summary</span>
-      <span class="value" id="panel-port-summary">—</span>
+    <div class="drawer-header">
+      <div class="drawer-header-row">
+        <div class="drawer-header-main">
+          <div class="drawer-name" id="panel-name">—</div>
+          <div class="drawer-type" id="panel-type">—</div>
+        </div>
+        <button id="panel-close" class="drawer-close">✕</button>
+      </div>
+      <div class="drawer-status-row">
+        <span class="status-pill" id="panel-status-pill">—</span>
+        <span class="drawer-checked" id="panel-checked">—</span>
+      </div>
     </div>
 
-    <div class="ports-header">
-      Ports
-      <span class="info-tip" title="Simulated fixture data for now — not live SNMP data yet. Real per-port monitoring is planned as a later step.">ⓘ</span>
+    <div class="drawer-actions">
+      <button id="panel-ping" class="drawer-btn primary">PING</button>
+      <button id="panel-restart" class="drawer-btn" disabled title="No real remediation action exists yet — placeholder for a future integration.">RESTART</button>
+      <button id="panel-ack" class="drawer-btn">ACK</button>
     </div>
-    <div id="panel-ports-list"></div>
+
+    <div class="drawer-section">
+      <div class="drawer-lat-header">
+        <span class="drawer-label">LATENCY &middot; RECENT</span>
+        <span class="drawer-lat-value" id="panel-latency">—</span>
+      </div>
+      <svg id="panel-spark" viewBox="0 0 320 56" width="100%" height="56" preserveAspectRatio="none">
+        <polyline id="panel-spark-line" fill="none" stroke-width="1.6" points=""></polyline>
+      </svg>
+    </div>
+
+    <div class="drawer-section drawer-facts" id="panel-facts"></div>
+
+    <div class="drawer-section">
+      <div class="drawer-ports-header">
+        <span class="drawer-label">PORTS &middot; <span id="panel-port-summary">—</span></span>
+        <span class="info-tip" title="Simulated fixture data for now — not live SNMP data yet. Real per-port monitoring is planned as a later step.">ⓘ</span>
+      </div>
+      <div id="panel-ports-list"></div>
+    </div>
+
+    <div class="drawer-section">
+      <div class="drawer-label">CONNECTED PEERS</div>
+      <div class="drawer-peers" id="panel-peers"></div>
+      <div class="drawer-blast" id="panel-blast">
+        <div class="drawer-blast-title" id="panel-blast-title">BLAST RADIUS</div>
+        <div class="drawer-blast-text" id="panel-blast-text">—</div>
+      </div>
+    </div>
+
+    <div class="drawer-section" style="border-bottom: none; padding-bottom: 26px;">
+      <div class="drawer-label">RECENT EVENTS</div>
+      <div class="drawer-events" id="panel-events"></div>
+    </div>
   </div>
 
-  <div id="chat-box">
-    <div id="chat-history"></div>
-    <form id="chat-form">
-      <input id="chat-input" type="text" placeholder="Ask infra-watch..." autocomplete="off" />
-      <button id="chat-send" type="submit">Send</button>
-    </form>
+  <div id="agent-dock">
+    <div id="chat-box">
+      <div id="chat-box-header">
+        <span class="dock-dot"></span>
+        <span class="dock-title">INFRA-WATCH AGENT</span>
+        <button type="button" id="dock-collapse" class="dock-toggle" title="Collapse">&#9662;</button>
+      </div>
+      <div id="chat-history"></div>
+      <form id="chat-form">
+        <span class="dock-prompt">&gt;</span>
+        <input id="chat-input" type="text" placeholder="ask about any device, link, or alert" autocomplete="off" />
+        <span class="dock-caret"></span>
+      </form>
+    </div>
+    <button type="button" id="chat-bar">
+      <span class="dock-dot"></span>
+      <span class="dock-title">INFRA-WATCH</span>
+      <span class="dock-status" id="dock-status">all systems healthy</span>
+      <span class="dock-caret"></span>
+    </button>
   </div>
-  <div id="chat-bar"><span class="dot"></span>infra-watch</div>
 
-<script type="importmap">
-{
-  "imports": {
-    "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
-  }
-}
-</script>
 <script type="module">
-import * as THREE from "three";
-
-// Hoisted here (used by the 3D scene's own sizing below, the view-tab
-// switcher, and the topology renderer) — the shell now gives #scene a
-// container smaller than the full viewport (below the top/sub bars), so
-// the renderer must size itself off this element, not window dimensions.
-const sceneEl = document.getElementById("scene");
-const topologyEl = document.getElementById("topology");
-const listViewEl = document.getElementById("list-view");
-
-const STATUS_COLOR = {
-  up: 0x3ddc84,
-  down: 0xff5c5c,
-  unknown: 0x6b6f76,
-  mixed: 0xff9800, // master LED only: some ports up, some down
-};
-
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x14161a);
-
-function getSceneSize() {
-  return { width: sceneEl.clientWidth, height: sceneEl.clientHeight };
-}
-
-// #scene may start hidden (display:none) if Topology is the default tab,
-// in which case it has zero layout size — fall back to the window's
-// aspect ratio just so the camera/renderer aren't created degenerate.
-// resizeSceneRenderer() re-measures for real the moment #scene actually
-// becomes visible (see the tab-click handler below).
-const initialSize = getSceneSize();
-const camera = new THREE.PerspectiveCamera(
-  45,
-  (initialSize.width || window.innerWidth) / (initialSize.height || window.innerHeight),
-  0.1,
-  100
-);
-camera.position.set(0, 4.4, 15.5);
-camera.lookAt(0, 0.1, 0);
-
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setSize(initialSize.width || window.innerWidth, initialSize.height || window.innerHeight);
-renderer.setPixelRatio(window.devicePixelRatio);
-sceneEl.appendChild(renderer.domElement);
-
-function resizeSceneRenderer() {
-  const { width, height } = getSceneSize();
-  if (width === 0 || height === 0) return; // hidden right now — nothing to size to
-  camera.aspect = width / height;
-  camera.updateProjectionMatrix();
-  renderer.setSize(width, height);
-}
-
-scene.add(new THREE.AmbientLight(0xffffff, 0.4));
-const keyLight = new THREE.DirectionalLight(0xffffff, 1.0);
-keyLight.position.set(5, 8, 6);
-scene.add(keyLight);
-
-const floor = new THREE.Mesh(
-  new THREE.PlaneGeometry(60, 60),
-  new THREE.MeshStandardMaterial({ color: 0x1b1e24 })
-);
-floor.rotation.x = -Math.PI / 2;
-floor.position.y = -0.01;
-scene.add(floor);
-
-window.addEventListener("resize", resizeSceneRenderer);
-
-// A 1U rack switch: a wide, thin, shallow black chassis (~10:1 width:height)
-// with a recessed lighter-gray panel carrying a row of flat square port
-// LEDs, plus one distinct square LED near the left edge for overall status.
-const CHASSIS_WIDTH = 4.2, CHASSIS_HEIGHT = 0.42, CHASSIS_DEPTH = 1.3;
-const PANEL_WIDTH = CHASSIS_WIDTH * 0.58, PANEL_HEIGHT = CHASSIS_HEIGHT * 0.55;
-const PANEL_X = CHASSIS_WIDTH * 0.12;
-const OVERALL_LED_X = -CHASSIS_WIDTH / 2 + 0.28;
-const DEFAULT_PORT_LED_COUNT = 4; // used only when a device has no ports data at all
-const DEVICE_SPACING = CHASSIS_WIDTH + 1.0;
-
-const chassisGeometry = new THREE.BoxGeometry(CHASSIS_WIDTH, CHASSIS_HEIGHT, CHASSIS_DEPTH);
-const chassisMaterialBase = { color: 0x0c0c0e, roughness: 0.75, metalness: 0.2 };
-
-const panelGeometry = new THREE.BoxGeometry(PANEL_WIDTH, PANEL_HEIGHT, 0.02);
-const panelMaterialBase = { color: 0x53565e, roughness: 0.55, metalness: 0.15 };
-
-const ledGeometry = new THREE.BoxGeometry(0.09, 0.09, 0.015);
-const overallLedGeometry = new THREE.BoxGeometry(0.16, 0.16, 0.02);
-
-const raycaster = new THREE.Raycaster();
-const pointer = new THREE.Vector2();
-
-// device.name -> { group, chassisMesh, panelMesh, overallLed: {mesh, material}, ports: [{mesh, material}], label, data }
-const devices = new Map();
-let clock = new THREE.Clock();
-
-function buildDevice(report, index, total) {
-  const name = report.name;
-  const startX = -((total - 1) * DEVICE_SPACING) / 2;
-
-  const group = new THREE.Group();
-  group.position.set(startX + index * DEVICE_SPACING, CHASSIS_HEIGHT / 2, 0);
-
-  const chassisMaterial = new THREE.MeshStandardMaterial(chassisMaterialBase);
-  const chassisMesh = new THREE.Mesh(chassisGeometry, chassisMaterial);
-  chassisMesh.userData.deviceName = name;
-  group.add(chassisMesh);
-
-  const panelMaterial = new THREE.MeshStandardMaterial(panelMaterialBase);
-  const panelMesh = new THREE.Mesh(panelGeometry, panelMaterial);
-  panelMesh.position.set(PANEL_X, 0, CHASSIS_DEPTH / 2 + 0.005);
-  panelMesh.userData.deviceName = name;
-  group.add(panelMesh);
-
-  // One LED per real port when we have port data; falls back to a fixed
-  // dim placeholder row when a device has no per-port data at all (e.g.
-  // real-ping mode, or a device that couldn't be checked this cycle).
-  const portCount = (report.ports && report.ports.length > 0) ? report.ports.length : DEFAULT_PORT_LED_COUNT;
-  const ports = [];
-  const portRowWidth = PANEL_WIDTH * 0.7;
-  const portStartX = PANEL_X - portRowWidth / 2;
-  for (let i = 0; i < portCount; i++) {
-    const portMaterial = new THREE.MeshStandardMaterial({
-      color: STATUS_COLOR.unknown,
-      emissive: 0x000000,
-      emissiveIntensity: 0,
-      transparent: true,
-      opacity: 1,
-      roughness: 0.4,
-      metalness: 0.3,
-    });
-    const port = new THREE.Mesh(ledGeometry, portMaterial);
-    const portX = portCount > 1 ? portStartX + (i * portRowWidth) / (portCount - 1) : PANEL_X;
-    port.position.set(portX, 0, CHASSIS_DEPTH / 2 + 0.015);
-    port.userData.deviceName = name;
-    group.add(port);
-    ports.push({ mesh: port, material: portMaterial });
+// --- theme toggle (Phosphor/dark <-> Paper/light) ---
+// In-memory only for now, per the task -- no localStorage/backend, so it
+// resets to Phosphor on reload. The button's label always names the
+// theme a click would switch TO, not the current one.
+let theme = "dark";
+const themeToggleBtn = document.getElementById("theme-toggle");
+function applyTheme() {
+  if (theme === "light") {
+    document.documentElement.setAttribute("data-theme", "light");
+    themeToggleBtn.textContent = "PHOSPHOR";
+  } else {
+    document.documentElement.removeAttribute("data-theme");
+    themeToggleBtn.textContent = "PAPER";
   }
-
-  const overallLedMaterial = new THREE.MeshStandardMaterial({
-    color: STATUS_COLOR.unknown,
-    emissive: 0x000000,
-    emissiveIntensity: 0,
-    transparent: true,
-    opacity: 1,
-    roughness: 0.3,
-    metalness: 0.1,
-  });
-  const overallLedMesh = new THREE.Mesh(overallLedGeometry, overallLedMaterial);
-  overallLedMesh.position.set(OVERALL_LED_X, 0, CHASSIS_DEPTH / 2 + 0.02);
-  overallLedMesh.userData.deviceName = name;
-  group.add(overallLedMesh);
-
-  const label = makeLabelSprite(name);
-  label.position.set(0, CHASSIS_HEIGHT / 2 + 0.35, 0);
-  group.add(label);
-
-  scene.add(group);
-  return {
-    group,
-    chassisMesh,
-    panelMesh,
-    overallLed: { mesh: overallLedMesh, material: overallLedMaterial },
-    ports,
-    label,
-  };
 }
+themeToggleBtn.addEventListener("click", () => {
+  theme = theme === "light" ? "dark" : "light";
+  applyTheme();
+});
+applyTheme();
+
+// Hoisted here — used by the view-tab switcher and each view's renderer.
+const rackEl = document.getElementById("rack");
+const rackRowsEl = document.getElementById("rack-rows");
+const topologyEl = document.getElementById("topology");
+const topologyGraphEl = document.getElementById("topology-graph");
+const listViewEl = document.getElementById("list-view");
+const listRowsEl = document.getElementById("list-rows");
+
+const DEFAULT_PORT_LED_COUNT = 4; // used only when a device has no ports data at all
 
 // Master LED state is derived from the ports array, NOT the device's raw
 // status — this is a visual aggregation layer only; the device-level
@@ -540,60 +734,222 @@ function summarizePorts(ports) {
   return `${upCount} up / ${downCount} down`;
 }
 
-function makeLabelSprite(text) {
-  const canvas = document.createElement("canvas");
-  canvas.width = 256;
-  canvas.height = 64;
-  const ctx = canvas.getContext("2d");
-  ctx.fillStyle = "rgba(0,0,0,0)";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.font = "28px sans-serif";
-  ctx.fillStyle = "#e6e8eb";
-  ctx.textAlign = "center";
-  ctx.fillText(text, canvas.width / 2, canvas.height / 2 + 10);
-  const texture = new THREE.CanvasTexture(canvas);
-  const material = new THREE.SpriteMaterial({ map: texture, transparent: true });
-  const sprite = new THREE.Sprite(material);
-  sprite.scale.set(1.6, 0.4, 1);
-  return sprite;
-}
-
-function updateDevices(reports) {
-  const names = reports.map((r) => r.name);
-
-  reports.forEach((report, index) => {
-    let entry = devices.get(report.name);
-    if (!entry) {
-      entry = buildDevice(report, index, reports.length);
-      devices.set(report.name, entry);
-    }
-    entry.data = report;
-  });
-
-  // Drop devices no longer present in the inventory.
-  for (const [name, entry] of devices) {
-    if (!names.includes(name)) {
-      scene.remove(entry.group);
-      devices.delete(name);
-    }
-  }
-
-  if (selectedDevice && devices.has(selectedDevice)) {
-    showPanel(devices.get(selectedDevice).data);
-  }
-}
-
-// New display vocabulary for the status-count strip: HEALTHY / AT RISK /
-// OFFLINE / UNKNOWN — never the internal up/down/unknown data values as
-// display text. Reuses aggregateMasterState (already defined above for
-// the 3D master LED / topology nodes) rather than re-deriving "mixed"
-// separately — a device that's device-level "up" but has some ports down
-// is AT RISK, not HEALTHY.
+// New display vocabulary for the status-count strip and rack rows:
+// HEALTHY / AT RISK / OFFLINE / UNKNOWN — never the internal
+// up/down/unknown data values as display text. Reuses aggregateMasterState
+// (already defined above for the topology nodes) rather than re-deriving
+// "mixed" separately — a device that's device-level "up" but has some
+// ports down is AT RISK, not HEALTHY.
 function classifyDevice(report) {
   if (report.status === "down") return "offline";
   if (report.status === "unknown") return "unknown";
   const aggregate = aggregateMasterState(report.ports || []);
   return aggregate === "orange-blink" ? "at-risk" : "healthy";
+}
+
+const CLASSIFICATION_LABEL = {
+  healthy: "HEALTHY",
+  "at-risk": "AT RISK",
+  offline: "OFFLINE",
+  unknown: "UNKNOWN",
+};
+
+function formatLatency(ms) {
+  return ms == null ? "—" : `${ms} ms`;
+}
+
+// Deterministic per-name hash — used only to seed fixture data below so
+// it's stable across re-renders instead of jittering every 5s.
+function seedFromName(name) {
+  let seed = 0;
+  for (const ch of name) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
+  return seed;
+}
+
+const SPARK_HISTORY_LEN = 12;
+const sparkHistory = new Map(); // device name -> array of latency samples (ms)
+
+// FIXTURE: the backend only keeps each device's latest check, not a
+// history, so there's nothing real to seed a sparkline from on first
+// view. Fabricate a short simulated run (deterministic per device) so
+// it isn't a flat line, then every subsequent /status poll appends a
+// real sample — the series becomes genuine history the longer the page
+// stays open.
+function pushLatencySample(name, latencyMs) {
+  let history = sparkHistory.get(name);
+  if (!history) {
+    const base = latencyMs == null ? 8 : latencyMs;
+    let seed = seedFromName(name);
+    history = Array.from({ length: SPARK_HISTORY_LEN - 1 }, () => {
+      seed = (seed * 1103515245 + 12345) >>> 0;
+      const jitter = ((seed % 100) / 100 - 0.5) * Math.max(base, 2) * 0.6;
+      return Math.max(0, base + jitter);
+    });
+    sparkHistory.set(name, history);
+  }
+  history.push(latencyMs == null ? 0 : latencyMs);
+  if (history.length > SPARK_HISTORY_LEN) history.shift();
+  return history;
+}
+
+const CLASSIFICATION_STROKE = {
+  healthy: "var(--iw-ok)",
+  "at-risk": "var(--iw-warn)",
+  offline: "var(--iw-down)",
+  unknown: "var(--iw-text-3)",
+};
+
+// FIXTURE: MODEL/FIRMWARE/SITE aren't tracked by any real inventory data
+// yet — these are placeholder values only (deterministic per device so
+// they don't change on every refresh). Needs real device data later.
+function fixtureFacts(report) {
+  const seed = seedFromName(report.name);
+  const typePrefix = (report.type || "dev").slice(0, 3).toUpperCase();
+  const model = `${typePrefix}-${100 + (seed % 800)}`;
+  const firmware = `v${1 + (seed % 4)}.${seed % 10}.${(Math.floor(seed / 16)) % 10}`;
+  return [
+    { k: "HOST", v: report.host },
+    { k: "TYPE", v: (report.type || "—").replace(/_/g, " ").toUpperCase() },
+    { k: "MODEL", v: model },
+    { k: "FIRMWARE", v: firmware },
+    { k: "SITE", v: "BARRIE HQ" },
+  ];
+}
+
+// FIXTURE: simulated log lines — no real event history is stored
+// anywhere yet, so these are generated from the device's current
+// classification rather than a real audit trail.
+function fixtureEvents(report, classification) {
+  const checked = new Date(report.last_checked);
+  const fmt = (offsetMinutes) => {
+    const t = new Date(checked.getTime() - offsetMinutes * 60000);
+    return Number.isNaN(t.getTime()) ? "—" : t.toLocaleTimeString();
+  };
+  const headline =
+    classification === "offline" ? "Second consecutive check failed — marked offline"
+    : classification === "at-risk" ? "Packet loss or a down port crossed the health threshold"
+    : classification === "unknown" ? "Check could not be verified this cycle"
+    : "Health check passed";
+  return [
+    { text: headline, time: fmt(0), classification },
+    { text: "Latency sample recorded", time: fmt(5), classification: "healthy" },
+    { text: "Configuration snapshot taken", time: fmt(120), classification: "healthy" },
+    { text: "Firmware verified", time: fmt(600), classification: "healthy" },
+  ];
+}
+
+// Every device this one connects to, in either direction — used for the
+// Connected Peers chips. Reuses the same /topology connections list the
+// hub-and-spoke graph itself is built from.
+function computePeers(name, connections) {
+  const peers = [];
+  connections.forEach((c) => {
+    if (c.source === name) peers.push(c.target);
+    else if (c.target === name) peers.push(c.source);
+  });
+  return peers;
+}
+
+// Blast radius: every device that depends on this one transitively,
+// walking only the directed source -> target edges (mirrors the
+// topology's hub-and-spoke shape, but works for any shape). A leaf with
+// no outgoing edges always has an empty blast radius.
+function computeDownstream(name, connections) {
+  const children = {};
+  connections.forEach((c) => {
+    if (!children[c.source]) children[c.source] = [];
+    children[c.source].push(c.target);
+  });
+  const out = [];
+  const walk = (n) => {
+    (children[n] || []).forEach((c) => {
+      if (!out.includes(c)) {
+        out.push(c);
+        walk(c);
+      }
+    });
+  };
+  walk(name);
+  return out;
+}
+
+// Flat CSS rack elevation: a bordered panel of device rows. The left bar
+// and the status pill both come from the same classifyDevice() call, so
+// they can never disagree on one row. Per-port LEDs reuse the exact same
+// three-state visual language as before (green soft-pulse / red
+// hard-blink / gray static), now as CSS animations instead of a Three.js
+// per-frame material loop.
+function renderRackView(reports) {
+  rackRowsEl.innerHTML = "";
+  reports.forEach((report) => {
+    const classification = classifyDevice(report);
+    const ports = report.ports || [];
+    const portCount = ports.length > 0 ? ports.length : DEFAULT_PORT_LED_COUNT;
+
+    const ledsHtml = Array.from({ length: portCount }, (_, i) => {
+      const status = ports[i] ? ports[i].status : "unknown";
+      const cls = ["up", "down"].includes(status) ? status : "unknown";
+      return `<span class="rack-led status-${cls}"></span>`;
+    }).join("");
+
+    const typeLabel = (report.type || "").replace(/_/g, " ").toUpperCase();
+
+    const row = document.createElement("div");
+    row.className = "rack-row";
+    row.innerHTML = `
+      <div class="rack-row-bar ${classification}"></div>
+      <div class="rack-row-name">${report.name}</div>
+      <div class="rack-row-leds">${ledsHtml}</div>
+      <div class="rack-row-meta">
+        <span class="rack-row-type">${typeLabel}</span>
+        <span class="rack-row-latency">${formatLatency(report.latency_ms)}</span>
+        <span class="status-pill ${classification}">${CLASSIFICATION_LABEL[classification]}</span>
+      </div>
+    `;
+    row.addEventListener("click", () => {
+      selectedDevice = report.name;
+      showPanel(report);
+    });
+    rackRowsEl.appendChild(row);
+  });
+}
+
+// "13:45:10" from an ISO timestamp, falling back to the raw string if it
+// doesn't parse — display-only, matches local browser time.
+function formatLastChecked(iso) {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleTimeString();
+}
+
+// Flat table matching the rack/topology views' visual language: a
+// bordered panel, one row per device, name-dot + status pill both from
+// the same classifyDevice() call used everywhere else so this view can
+// never disagree with the others about a device's state.
+function renderListView(reports) {
+  listRowsEl.innerHTML = "";
+  reports.forEach((report) => {
+    const classification = classifyDevice(report);
+    const typeLabel = (report.type || "").replace(/_/g, " ").toUpperCase();
+
+    const row = document.createElement("div");
+    row.className = "list-row";
+    row.innerHTML = `
+      <div class="list-row-device">
+        <span class="list-dot ${classification}"></span>
+        <span class="list-row-name">${report.name}</span>
+      </div>
+      <div class="list-row-cell">${report.host}</div>
+      <div class="list-row-cell">${typeLabel}</div>
+      <div class="list-row-cell">${formatLatency(report.latency_ms)}</div>
+      <div class="list-row-cell">${formatLastChecked(report.last_checked)}</div>
+      <div><span class="status-pill ${classification}">${CLASSIFICATION_LABEL[classification]}</span></div>
+    `;
+    row.addEventListener("click", () => {
+      selectedDevice = report.name;
+      showPanel(report);
+    });
+    listRowsEl.appendChild(row);
+  });
 }
 
 function updateStatusCounts(reports) {
@@ -603,14 +959,47 @@ function updateStatusCounts(reports) {
   document.getElementById("count-at-risk").textContent = counts["at-risk"];
   document.getElementById("count-offline").textContent = counts.offline;
   document.getElementById("count-unknown").textContent = counts.unknown;
+  updateDockStatus(counts);
 }
+
+// OFFLINE + AT RISK devices are "incidents" for the collapsed dock's
+// one-line summary — UNKNOWN (unverified, not a confirmed problem) isn't
+// counted, matching the same classification driving every other view.
+function updateDockStatus(counts) {
+  const incidents = counts.offline + counts["at-risk"];
+  const statusEl = document.getElementById("dock-status");
+  if (incidents === 0) {
+    statusEl.textContent = "all systems healthy";
+  } else {
+    const noun = incidents === 1 ? "incident" : "incidents";
+    const verb = incidents === 1 ? "needs" : "need";
+    statusEl.textContent = `${incidents} ${noun} ${verb} attention`;
+  }
+}
+
+// Keyed by device name — lets the drawer look up a peer/selected device's
+// latest report from anywhere (peer chips, the ping/ack handlers) without
+// re-fetching. Rebuilt on every /status poll.
+let latestReportsByName = {};
 
 async function pollStatus() {
   try {
     const res = await fetch("/status");
     const reports = await res.json();
-    updateDevices(reports);
+    latestReportsByName = {};
+    reports.forEach((r) => {
+      latestReportsByName[r.name] = r;
+      pushLatencySample(r.name, r.latency_ms);
+    });
+    renderRackView(reports);
+    renderListView(reports);
     updateStatusCounts(reports);
+    // Keep an open detail panel in sync regardless of which view opened
+    // it — /status is polled every 5s independent of the active tab.
+    if (selectedDevice) {
+      const current = reports.find((r) => r.name === selectedDevice);
+      if (current) showPanel(current);
+    }
   } catch (err) {
     console.error("failed to fetch /status", err);
   }
@@ -620,50 +1009,69 @@ pollStatus();
 setInterval(pollStatus, 5000);
 
 // --- view tabs (Topology / Rack / List) ---
-// LIST has no view built yet (out of scope this round) — its tab is real
-// and clickable, but shows an honest placeholder rather than a dead button.
 
 document.querySelectorAll(".view-tab").forEach((btn) => {
   btn.addEventListener("click", () => {
     document.querySelectorAll(".view-tab").forEach((b) => b.classList.remove("active"));
     btn.classList.add("active");
     const view = btn.dataset.view;
-    sceneEl.style.display = view === "3d" ? "block" : "none";
+    rackEl.style.display = view === "rack" ? "block" : "none";
     topologyEl.style.display = view === "topology" ? "block" : "none";
-    listViewEl.style.display = view === "list" ? "flex" : "none";
-    // #scene has zero layout size while display:none, so the renderer's
-    // buffer/camera aspect can only be fixed to the real container size
-    // right after it becomes visible again — reading clientWidth/Height
-    // here forces the browser to lay it out first.
-    if (view === "3d") resizeSceneRenderer();
+    listViewEl.style.display = view === "list" ? "block" : "none";
   });
 });
 
-// --- topology view (2D hub-and-spoke SVG) ---
-// Reuses aggregateMasterState (node color) and the same STATUS_COLOR
-// palette as the 3D master LED, and the same showPanel side panel — no
-// separate coloring or detail-panel logic for this view.
+// --- topology view (2D hub-and-spoke, restyled per the design system
+// reference) ---
+// Nodes and edges both reuse classifyDevice() -- the same classification
+// already driving the rack view's left bar/pill and the status-count
+// strip -- so none of these surfaces can ever disagree about a device's
+// state. Layout (center, radius, per-leaf angle) is unchanged from
+// before; only what's drawn at each position and along each edge changed.
 
-function cssColor(hex) {
-  return "#" + hex.toString(16).padStart(6, "0");
+const TOPO_BOX_WIDTH = 172, TOPO_BOX_HEIGHT = 58;
+
+const EDGE_MARKER = {
+  healthy: "url(#iw-ar-ok)",
+  degraded: "url(#iw-ar-warn)",
+  down: "url(#iw-ar-down)",
+};
+
+// iw-down if either endpoint -- hub included -- is offline, iw-ok only if
+// both are healthy, iw-warn (degraded) for everything in between.
+function edgeHealth(hubClassification, leafClassification) {
+  if (hubClassification === "offline" || leafClassification === "offline") return "down";
+  if (hubClassification === "healthy" && leafClassification === "healthy") return "healthy";
+  return "degraded";
 }
 
-function nodeColor(ports) {
-  const state = aggregateMasterState(ports);
-  if (state === "green-pulse") return cssColor(STATUS_COLOR.up);
-  if (state === "red-hard-blink") return cssColor(STATUS_COLOR.down);
-  if (state === "orange-blink") return cssColor(STATUS_COLOR.mixed);
-  return cssColor(STATUS_COLOR.unknown);
+// Distance from a box's center to its edge along a unit direction vector
+// (dx, dy) -- used to stop each edge/arrow at the node box's boundary
+// instead of drawing through it.
+function boxEdgeDistance(dx, dy) {
+  const tx = dx !== 0 ? (TOPO_BOX_WIDTH / 2) / Math.abs(dx) : Infinity;
+  const ty = dy !== 0 ? (TOPO_BOX_HEIGHT / 2) / Math.abs(dy) : Infinity;
+  return Math.min(tx, ty);
 }
 
-// Line color uses device-level status (not the ports aggregate): green
-// only if both ends are confirmed up, red if the hub itself is down
-// (that connection is effectively cut regardless of the leaf), orange
-// for everything else (exactly one end down/unknown).
-function connectionColor(hubStatus, leafStatus) {
-  if (hubStatus === "down") return cssColor(STATUS_COLOR.down);
-  if (hubStatus === "up" && leafStatus === "up") return cssColor(STATUS_COLOR.up);
-  return cssColor(STATUS_COLOR.mixed);
+function topoNodeBoxHtml(report, classification, x, y) {
+  const name = report ? report.name : "unknown";
+  const typeLabel = ((report && report.type) || "").replace(/_/g, " ").toUpperCase();
+  const latencyLabel = report ? formatLatency(report.latency_ms) : "—";
+  return `
+    <foreignObject x="${x - TOPO_BOX_WIDTH / 2}" y="${y - TOPO_BOX_HEIGHT / 2}" width="${TOPO_BOX_WIDTH}" height="${TOPO_BOX_HEIGHT}">
+      <div xmlns="http://www.w3.org/1999/xhtml" class="topo-node-box" data-device-name="${name}">
+        <div class="topo-node-row1">
+          <span class="topo-node-dot ${classification}"></span>
+          <span class="topo-node-name">${name}</span>
+        </div>
+        <div class="topo-node-row2">
+          <span class="topo-node-type">${typeLabel}</span>
+          <span>${latencyLabel}</span>
+        </div>
+      </div>
+    </foreignObject>
+  `;
 }
 
 function renderTopology(topology) {
@@ -672,7 +1080,7 @@ function renderTopology(topology) {
   (topology.devices || []).forEach((d) => { devicesByName[d.name] = d; });
 
   if (connections.length === 0) {
-    topologyEl.innerHTML = '<div style="color:#6b7280; padding: 80px; text-align:center; font-size: 13px;">No topology data.</div>';
+    topologyGraphEl.innerHTML = '<div style="color: var(--iw-text-3); padding: 80px; text-align: center; font-size: 13px;">No topology data.</div>';
     return;
   }
 
@@ -683,7 +1091,6 @@ function renderTopology(topology) {
   const width = 900, height = 560;
   const cx = width / 2, cy = height / 2;
   const spokeRadius = Math.min(width, height) * 0.32;
-  const hubR = 34, leafR = 26;
 
   const leafPositions = leafNames.map((name, i) => {
     const angle = -Math.PI / 2 + (i * 2 * Math.PI) / leafNames.length;
@@ -695,40 +1102,49 @@ function renderTopology(topology) {
   });
 
   const hubDevice = devicesByName[hubName];
-  const hubColor = hubDevice ? nodeColor(hubDevice.ports) : cssColor(STATUS_COLOR.unknown);
-  const hubStatus = hubDevice ? hubDevice.status : "unknown";
+  const hubClassification = hubDevice ? classifyDevice(hubDevice) : "unknown";
 
-  const lines = connections.map((conn) => {
+  const edges = connections.map((conn) => {
     const leafPos = leafPositions.find((p) => p.name === conn.target);
     const leafDevice = devicesByName[conn.target];
-    const leafStatus = leafDevice ? leafDevice.status : "unknown";
-    const color = connectionColor(hubStatus, leafStatus);
-    return `<line x1="${cx}" y1="${cy}" x2="${leafPos.x}" y2="${leafPos.y}" stroke="${color}" stroke-width="3" />`;
+    const leafClassification = leafDevice ? classifyDevice(leafDevice) : "unknown";
+    const health = edgeHealth(hubClassification, leafClassification);
+
+    // Shorten the line at both ends to the boxes' edges (not centers) so
+    // the arrowhead lands right at the target box instead of under it.
+    const dx = leafPos.x - cx, dy = leafPos.y - cy;
+    const dist = Math.hypot(dx, dy);
+    const ux = dx / dist, uy = dy / dist;
+    const startOffset = boxEdgeDistance(ux, uy);
+    const endOffset = boxEdgeDistance(-ux, -uy);
+    const x1 = cx + ux * startOffset, y1 = cy + uy * startOffset;
+    const x2 = leafPos.x - ux * endOffset, y2 = leafPos.y - uy * endOffset;
+
+    return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="topo-edge ${health}" stroke-width="2" marker-end="${EDGE_MARKER[health]}" />`;
   }).join("");
 
-  const leafNodes = leafPositions.map((pos) => {
+  const leafBoxes = leafPositions.map((pos) => {
     const device = devicesByName[pos.name];
-    const color = device ? nodeColor(device.ports) : cssColor(STATUS_COLOR.unknown);
-    return `
-      <g class="topo-node" data-device-name="${pos.name}">
-        <circle cx="${pos.x}" cy="${pos.y}" r="${leafR}" fill="${color}" />
-        <text class="topo-label" x="${pos.x}" y="${pos.y + leafR + 18}">${pos.name}</text>
-      </g>
-    `;
+    const classification = device ? classifyDevice(device) : "unknown";
+    return topoNodeBoxHtml(device, classification, pos.x, pos.y);
   }).join("");
 
-  topologyEl.innerHTML = `
+  const hubBox = topoNodeBoxHtml(hubDevice, hubClassification, cx, cy);
+
+  topologyGraphEl.innerHTML = `
     <svg viewBox="0 0 ${width} ${height}">
-      ${lines}
-      <g class="topo-node" data-device-name="${hubName}">
-        <circle cx="${cx}" cy="${cy}" r="${hubR}" fill="${hubColor}" />
-        <text class="topo-label" x="${cx}" y="${cy + hubR + 20}">${hubName}</text>
-      </g>
-      ${leafNodes}
+      <defs>
+        <marker id="iw-ar-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--iw-ok)" /></marker>
+        <marker id="iw-ar-warn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--iw-warn)" /></marker>
+        <marker id="iw-ar-down" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="var(--iw-down)" /></marker>
+      </defs>
+      ${edges}
+      ${hubBox}
+      ${leafBoxes}
     </svg>
   `;
 
-  topologyEl.querySelectorAll(".topo-node").forEach((node) => {
+  topologyGraphEl.querySelectorAll(".topo-node-box").forEach((node) => {
     node.addEventListener("click", () => {
       const name = node.dataset.deviceName;
       const device = devicesByName[name];
@@ -740,11 +1156,23 @@ function renderTopology(topology) {
   });
 }
 
+// The raw {source, source_port, target} connection list from the last
+// /topology poll — the drawer's Connected Peers/Blast Radius sections
+// read this directly rather than duplicating the topology fetch.
+let topologyConnections = [];
+
 async function pollTopology() {
   try {
     const res = await fetch("/topology");
     const topology = await res.json();
+    topologyConnections = topology.connections || [];
     renderTopology(topology);
+    // A device's peers/blast radius can only change when the connection
+    // list itself changes, but re-rendering an open drawer here is cheap
+    // and keeps it correct if that ever happens.
+    if (selectedDevice && latestReportsByName[selectedDevice]) {
+      showPanel(latestReportsByName[selectedDevice]);
+    }
   } catch (err) {
     console.error("failed to fetch /topology", err);
   }
@@ -762,159 +1190,224 @@ document.getElementById("panel-close").addEventListener("click", () => {
   selectedDevice = null;
 });
 
-function showPanel(data) {
-  document.getElementById("panel-name").textContent = data.name;
-  document.getElementById("panel-host").textContent = data.host;
+// Local-only UI flag: whether the drawer's ACK button has been toggled
+// for a device. Not tied to any real alerting backend — it resets on
+// page reload and is never sent to the server.
+const acknowledged = new Map();
 
-  const statusEl = document.getElementById("panel-status");
-  statusEl.textContent = data.status;
-  statusEl.className = "value status-" + data.status;
+// "13:52:07 · 12s ago" / "13:52:07 · failed" — real elapsed time computed
+// from the report's own last_checked, not fixture data.
+function formatCheckedLabel(report) {
+  const checkedAt = new Date(report.last_checked);
+  const timeLabel = Number.isNaN(checkedAt.getTime()) ? report.last_checked : checkedAt.toLocaleTimeString();
+  if (report.status === "down") return `CHECKED ${timeLabel} · FAILED`;
+  const secondsAgo = Math.max(0, Math.round((Date.now() - checkedAt.getTime()) / 1000));
+  return `CHECKED ${timeLabel} · ${secondsAgo}S AGO`;
+}
 
-  document.getElementById("panel-latency").textContent =
-    data.latency_ms == null ? "—" : `${data.latency_ms} ms`;
-  document.getElementById("panel-last-checked").textContent = data.last_checked;
-  document.getElementById("panel-severity").textContent = data.severity;
+function renderSparkline(history, classification) {
+  const max = Math.max(...history, 1);
+  const points = history
+    .map((v, i) => {
+      const x = (i * (320 / (history.length - 1))).toFixed(1);
+      const y = (52 - (v / max) * 46).toFixed(1);
+      return `${x},${y}`;
+    })
+    .join(" ");
+  const line = document.getElementById("panel-spark-line");
+  line.setAttribute("points", points);
+  line.setAttribute("stroke", CLASSIFICATION_STROKE[classification]);
+}
 
-  const ports = data.ports || [];
+function renderFacts(facts) {
+  const factsEl = document.getElementById("panel-facts");
+  factsEl.innerHTML = "";
+  facts.forEach((fact) => {
+    const row = document.createElement("div");
+    row.className = "drawer-fact-row";
+    row.innerHTML = `
+      <span class="drawer-fact-key">${fact.k}</span>
+      <span class="drawer-fact-value">${fact.v}</span>
+    `;
+    factsEl.appendChild(row);
+  });
+}
+
+function renderPorts(report) {
+  const ports = report.ports || [];
   document.getElementById("panel-port-summary").textContent = summarizePorts(ports);
 
   const portsList = document.getElementById("panel-ports-list");
   portsList.innerHTML = "";
   if (ports.length === 0) {
     const empty = document.createElement("div");
-    empty.className = "ports-empty";
+    empty.className = "drawer-ports-empty";
     empty.textContent = "No port data available yet.";
     portsList.appendChild(empty);
   } else {
     ports.forEach((port) => {
       const status = ["up", "down"].includes(port.status) ? port.status : "unknown";
       const row = document.createElement("div");
-      row.className = "port-row";
+      row.className = "drawer-port-row";
       row.innerHTML = `
-        <span class="port-label"><span class="port-dot status-${status}"></span>Port ${port.port}</span>
-        <span class="port-status-text status-${status}">${status}</span>
+        <span class="drawer-port-label"><span class="drawer-port-dot ${status}"></span>Port ${port.port}</span>
+        <span class="drawer-port-status">${status}</span>
       `;
       portsList.appendChild(row);
     });
   }
+}
+
+function renderPeersAndBlast(report) {
+  const peersEl = document.getElementById("panel-peers");
+  peersEl.innerHTML = "";
+  const peerNames = computePeers(report.name, topologyConnections);
+  if (peerNames.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "drawer-peers-empty";
+    empty.textContent = "No connections in the topology.";
+    peersEl.appendChild(empty);
+  } else {
+    peerNames.forEach((peerName) => {
+      const peerReport = latestReportsByName[peerName];
+      const peerClassification = peerReport ? classifyDevice(peerReport) : "unknown";
+      const chip = document.createElement("button");
+      chip.className = "drawer-peer-chip";
+      chip.innerHTML = `<span class="drawer-peer-dot ${peerClassification}"></span>${peerName}`;
+      chip.addEventListener("click", () => {
+        if (peerReport) {
+          selectedDevice = peerName;
+          showPanel(peerReport);
+        }
+      });
+      peersEl.appendChild(chip);
+    });
+  }
+
+  const downstream = computeDownstream(report.name, topologyConnections);
+  const blastEl = document.getElementById("panel-blast");
+  blastEl.classList.toggle("active", downstream.length > 0);
+  document.getElementById("panel-blast-text").textContent =
+    downstream.length > 0
+      ? `${downstream.length} device${downstream.length > 1 ? "s" : ""} lose connectivity if this fails: ${downstream.join(", ")}.`
+      : "Nothing downstream. A failure here is contained to this device.";
+}
+
+function renderEvents(report, classification) {
+  const eventsEl = document.getElementById("panel-events");
+  eventsEl.innerHTML = "";
+  fixtureEvents(report, classification).forEach((ev) => {
+    const row = document.createElement("div");
+    row.className = "drawer-event-row";
+    row.innerHTML = `
+      <span class="drawer-event-dot ${ev.classification}"></span>
+      <div>
+        <div class="drawer-event-text">${ev.text}</div>
+        <div class="drawer-event-time">${ev.time}</div>
+      </div>
+    `;
+    eventsEl.appendChild(row);
+  });
+}
+
+function updateAckButton() {
+  const btn = document.getElementById("panel-ack");
+  const on = !!acknowledged.get(selectedDevice);
+  btn.textContent = on ? "ACKNOWLEDGED" : "ACK";
+  btn.classList.toggle("active", on);
+}
+
+function showPanel(data) {
+  const classification = classifyDevice(data);
+  const typeLabel = (data.type || "").replace(/_/g, " ").toUpperCase();
+  const facts = fixtureFacts(data);
+
+  document.getElementById("panel-name").textContent = data.name;
+  document.getElementById("panel-type").textContent = `${typeLabel} · ${facts[2].v}`;
+
+  const pillEl = document.getElementById("panel-status-pill");
+  pillEl.className = `status-pill ${classification}`;
+  pillEl.textContent = CLASSIFICATION_LABEL[classification];
+  document.getElementById("panel-checked").textContent = formatCheckedLabel(data);
+
+  document.getElementById("panel-latency").textContent = formatLatency(data.latency_ms);
+  const history = sparkHistory.get(data.name) || pushLatencySample(data.name, data.latency_ms);
+  renderSparkline(history, classification);
+
+  renderFacts(facts);
+  renderPorts(data);
+  renderPeersAndBlast(data);
+  renderEvents(data, classification);
+  updateAckButton();
 
   panel.classList.add("open");
 }
 
-renderer.domElement.addEventListener("click", (event) => {
-  const rect = renderer.domElement.getBoundingClientRect();
-  pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-  pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+document.getElementById("panel-ping").addEventListener("click", async (event) => {
+  if (!selectedDevice) return;
+  const report = latestReportsByName[selectedDevice];
+  if (!report) return;
 
-  raycaster.setFromCamera(pointer, camera);
-  const hits = raycaster.intersectObjects(
-    Array.from(devices.values()).flatMap((e) => [
-      e.chassisMesh,
-      e.panelMesh,
-      e.overallLed.mesh,
-      ...e.ports.map((p) => p.mesh),
-    ])
-  );
-  if (hits.length > 0) {
-    const name = hits[0].object.userData.deviceName;
-    const entry = devices.get(name);
-    if (entry) {
-      selectedDevice = name;
-      showPanel(entry.data);
-    }
+  const btn = event.currentTarget;
+  btn.disabled = true;
+  const originalLabel = btn.textContent;
+  btn.textContent = "PINGING…";
+  try {
+    // A real check_device_status call, not simulated — hits the same
+    // retry-wrapped probe the background check cycle uses. Updates only
+    // this drawer's own fields; the next 5s /status poll remains the
+    // single source of truth for the rest of the app.
+    const res = await fetch(`/ping/${encodeURIComponent(report.host)}`, { method: "POST" });
+    const result = await res.json();
+    document.getElementById("panel-latency").textContent = formatLatency(result.latency_ms);
+    document.getElementById("panel-checked").textContent =
+      `CHECKED ${new Date(result.last_checked).toLocaleTimeString()} · JUST NOW`;
+  } catch (err) {
+    console.error("ping failed", err);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
   }
 });
 
-// --- animation loop ---
-// Per-port LEDs: green soft-pulse (up) / red hard-blink (down) / dim gray
-// static (unknown) — the same three-state language the master LED used
-// to use for device-level status.
-// Master LED: a separate 4-state aggregation over the ports array —
-// green pulse (all up), orange steady/no animation (mixed), red hard
-// blink (all down), gray static (any unknown, or no port data).
+document.getElementById("panel-ack").addEventListener("click", () => {
+  if (!selectedDevice) return;
+  acknowledged.set(selectedDevice, !acknowledged.get(selectedDevice));
+  updateAckButton();
+});
 
-function setLedState(material, t, state) {
-  if (state === "up") {
-    const wave = 0.5 + 0.5 * Math.sin(t * 2.2); // slow, soft cycle
-    material.color.setHex(STATUS_COLOR.up);
-    material.emissive.setHex(STATUS_COLOR.up);
-    material.emissiveIntensity = 0.3 + 0.7 * wave;
-    material.opacity = 0.7 + 0.3 * wave;
-  } else if (state === "down") {
-    const on = Math.sin(t * 2.0) > 0; // hard on/off blink
-    material.color.setHex(STATUS_COLOR.down);
-    material.emissive.setHex(STATUS_COLOR.down);
-    material.emissiveIntensity = on ? 1.0 : 0.0;
-    material.opacity = on ? 1.0 : 0.35;
-  } else {
-    material.color.setHex(STATUS_COLOR.unknown);
-    material.emissive.setHex(0x000000);
-    material.emissiveIntensity = 0;
-    material.opacity = 1;
-  }
-}
+// --- agent dock (chat bar, collapsed <-> expanded) ---
+// Visual restyle only: the /chat endpoint call and conversation memory
+// below are unchanged from before.
 
-function animate() {
-  requestAnimationFrame(animate);
-  const t = clock.getElapsedTime();
-
-  for (const entry of devices.values()) {
-    if (!entry.data) continue;
-    const ports = entry.data.ports || [];
-
-    entry.ports.forEach((portEntry, i) => {
-      const portStatus = ports[i] ? ports[i].status : "unknown";
-      setLedState(portEntry.material, t, portStatus);
-    });
-
-    const masterMaterial = entry.overallLed.material;
-    switch (aggregateMasterState(ports)) {
-      case "green-pulse":
-        setLedState(masterMaterial, t, "up");
-        break;
-      case "red-hard-blink":
-        setLedState(masterMaterial, t, "down");
-        break;
-      case "orange-blink": {
-        // Moderate blink: clearly a blink (not a smooth pulse like green),
-        // but slower and gentler than the red hard-blink — never fully
-        // dark, so a mixed-state device draws attention without reading
-        // as urgent as a full outage.
-        const on = Math.sin(t * 1.0) > 0; // half the blink rate of "down"
-        masterMaterial.color.setHex(STATUS_COLOR.mixed);
-        masterMaterial.emissive.setHex(STATUS_COLOR.mixed);
-        masterMaterial.emissiveIntensity = on ? 0.9 : 0.25;
-        masterMaterial.opacity = on ? 1.0 : 0.6;
-        break;
-      }
-      default: // gray
-        setLedState(masterMaterial, t, "unknown");
-    }
-  }
-
-  renderer.render(scene, camera);
-}
-
-animate();
-
-// --- chat bar ---
-
+const agentDock = document.getElementById("agent-dock");
 const chatBar = document.getElementById("chat-bar");
-const chatBox = document.getElementById("chat-box");
+const dockCollapse = document.getElementById("dock-collapse");
 const chatHistory = document.getElementById("chat-history");
 const chatForm = document.getElementById("chat-form");
 const chatInput = document.getElementById("chat-input");
-const chatSend = document.getElementById("chat-send");
 
-chatBar.addEventListener("click", () => {
-  chatBox.classList.toggle("open");
-  if (chatBox.classList.contains("open")) chatInput.focus();
-});
+function openDock() {
+  agentDock.classList.add("open");
+  chatInput.focus();
+}
+function closeDock() {
+  agentDock.classList.remove("open");
+}
 
+chatBar.addEventListener("click", openDock);
+dockCollapse.addEventListener("click", closeDock);
+
+// "> your message" (user) or a left-border-accented block (agent) — text
+// is always set via textContent, never innerHTML, so a device name or a
+// model reply can never inject markup.
 function appendMessage(text, role) {
   const el = document.createElement("div");
   el.className = `msg ${role}`;
-  el.textContent = text;
+  el.innerHTML = role.startsWith("user")
+    ? `<span class="msg-prompt">&gt;</span><span class="msg-text"></span>`
+    : `<span class="msg-text"></span>`;
+  el.querySelector(".msg-text").textContent = text;
   chatHistory.appendChild(el);
   chatHistory.scrollTop = chatHistory.scrollHeight;
   return el;
@@ -928,7 +1421,6 @@ chatForm.addEventListener("submit", async (event) => {
   appendMessage(message, "user");
   chatInput.value = "";
   chatInput.disabled = true;
-  chatSend.disabled = true;
   const pending = appendMessage("...", "agent pending");
 
   try {
@@ -938,14 +1430,13 @@ chatForm.addEventListener("submit", async (event) => {
       body: JSON.stringify({ message }),
     });
     const data = await res.json();
-    pending.textContent = data.reply;
+    pending.querySelector(".msg-text").textContent = data.reply;
     pending.classList.remove("pending");
   } catch (err) {
-    pending.textContent = "Sorry, I couldn't reach the server.";
+    pending.querySelector(".msg-text").textContent = "Sorry, I couldn't reach the server.";
     pending.classList.remove("pending");
   } finally {
     chatInput.disabled = false;
-    chatSend.disabled = false;
     chatInput.focus();
   }
 });
