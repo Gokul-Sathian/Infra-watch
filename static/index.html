@@ -234,7 +234,7 @@
   #list-panel { border: 1px solid var(--iw-line); background: var(--iw-panel); }
   .list-header, .list-row {
     display: grid;
-    grid-template-columns: 1.4fr 1fr 0.9fr 0.8fr 0.9fr 1.1fr;
+    grid-template-columns: 1.3fr 1fr 0.9fr 0.5fr 0.7fr 0.9fr 1fr;
     gap: 16px;
     align-items: center;
     padding: 11px 18px;
@@ -245,6 +245,15 @@
     letter-spacing: 0.14em;
     color: var(--iw-text-3);
   }
+  .list-header-cell {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .list-header-cell:hover { color: var(--iw-text-2); }
+  .list-sort-caret { color: var(--iw-act); font-size: 9px; }
   .list-row { border-top: 1px solid var(--iw-line-soft); cursor: pointer; }
   .list-row:hover { background: var(--iw-hover); }
   .list-row-device { display: flex; align-items: center; gap: 10px; min-width: 0; }
@@ -426,8 +435,41 @@
   .drawer-event-text { font-size: 12px; color: var(--iw-text); line-height: 1.5; }
   .drawer-event-time { font-size: 10px; letter-spacing: 0.08em; color: var(--iw-text-3); margin-top: 3px; }
 
-  #topology-graph { position: absolute; inset: 0; }
+  #topology-graph { position: absolute; inset: 0; transform-origin: center center; }
   #topology-graph svg { width: 100%; height: 100%; overflow: visible; }
+
+  #topology-zoom {
+    position: absolute;
+    bottom: 16px;
+    right: 20px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    z-index: 2;
+  }
+  .topo-zoom-btn {
+    width: 26px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--iw-panel);
+    border: 1px solid var(--iw-line);
+    color: var(--iw-text-2);
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .topo-zoom-btn:hover { border-color: var(--iw-act); color: var(--iw-act); }
+  .topo-zoom-level {
+    min-width: 42px;
+    text-align: center;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    color: var(--iw-text-3);
+  }
 
   #topology-legend {
     position: absolute;
@@ -465,10 +507,16 @@
      comparing each box's device name against the shared selectedDevice
      used by every other view's drawer-open click. */
   .topo-node-box.selected { border: 2px solid var(--iw-act); }
-  /* Same hard-blink/soft-pulse distinction as the rack view's LEDs and
-     the status-count strip's OFFLINE dot -- opacity only, so it never
-     fights with the border color chosen above for selection/health. */
-  .topo-node-box.offline { animation: iwblip 1.4s steps(2) infinite; }
+  /* OFFLINE: a solid, non-blinking red box (border + a soft red-tinted
+     background, both from --iw-down) -- only the status dot below
+     blinks. :not(.selected) so an offline node that's also the current
+     selection still shows the --iw-act selection border instead of
+     being overridden back to red. */
+  .topo-node-box.offline { background: var(--iw-down-soft); }
+  .topo-node-box.offline:not(.selected) { border-color: var(--iw-down); }
+  /* AT RISK: same soft-pulse distinction as the rack view's LEDs --
+     opacity only, so it never fights with the border color chosen above
+     for selection. (OFFLINE no longer blinks the whole box -- see above.) */
   .topo-node-box.at-risk { animation: iwpulse 2.2s ease-in-out infinite; }
   .topo-node-row1 { display: flex; align-items: center; gap: 9px; }
   .topo-node-dot { width: 7px; height: 7px; flex-shrink: 0; }
@@ -659,12 +707,15 @@
         <span>ARROWS FOLLOW TRAFFIC DIRECTION &middot; CLICK A NODE FOR DETAIL</span>
       </div>
       <div id="topology-graph"></div>
+      <div id="topology-zoom">
+        <button type="button" id="topo-zoom-out" class="topo-zoom-btn" title="Zoom out">&minus;</button>
+        <span id="topo-zoom-level" class="topo-zoom-level">100%</span>
+        <button type="button" id="topo-zoom-in" class="topo-zoom-btn" title="Zoom in">+</button>
+      </div>
     </div>
     <div id="list-view">
       <div id="list-panel">
-        <div class="list-header">
-          <div>DEVICE</div><div>HOST</div><div>TYPE</div><div>LATENCY</div><div>LAST CHECKED</div><div>STATUS</div>
-        </div>
+        <div class="list-header" id="list-header"></div>
         <div id="list-rows"></div>
       </div>
     </div>
@@ -793,6 +844,7 @@ const topologyEl = document.getElementById("topology");
 const topologyGraphEl = document.getElementById("topology-graph");
 const listViewEl = document.getElementById("list-view");
 const listRowsEl = document.getElementById("list-rows");
+const listHeaderEl = document.getElementById("list-header");
 
 const DEFAULT_PORT_LED_COUNT = 4; // used only when a device has no ports data at all
 
@@ -1015,13 +1067,66 @@ function formatLastChecked(iso) {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleTimeString();
 }
 
+// One definition per column drives both the clickable header and each
+// row's cell value -- adding/reordering a column only ever needs a
+// change here, not three places kept in sync by hand.
+const LIST_COLUMNS = [
+  { key: "name", label: "DEVICE", value: (r) => r.name },
+  { key: "host", label: "HOST", value: (r) => r.host },
+  { key: "type", label: "TYPE", value: (r) => r.type || "" },
+  { key: "rack", label: "RACK", value: (r) => fixtureLocation(r).rackId },
+  { key: "latency_ms", label: "LATENCY", value: (r) => r.latency_ms },
+  { key: "last_checked", label: "LAST CHECKED", value: (r) => r.last_checked },
+  { key: "status", label: "STATUS", value: (r) => CLASSIFICATION_LABEL[classifyDevice(r)] },
+];
+
+// null until a header is clicked -- the table then shows /status's own
+// order, same as before sorting existed. Sorting is a pure frontend
+// operation on whatever reports renderListView was last called with; no
+// new backend endpoint or request involved.
+let listSort = null; // { key, dir: "asc" | "desc" }
+let lastListReports = [];
+
+function sortedReports(reports) {
+  if (!listSort) return reports;
+  const column = LIST_COLUMNS.find((c) => c.key === listSort.key);
+  const sign = listSort.dir === "asc" ? 1 : -1;
+  return [...reports].sort((a, b) => {
+    const va = column.value(a), vb = column.value(b);
+    if (va == null && vb == null) return 0;
+    if (va == null) return 1; // nulls (e.g. no latency yet) always sort last
+    if (vb == null) return -1;
+    if (typeof va === "number" && typeof vb === "number") return (va - vb) * sign;
+    return String(va).localeCompare(String(vb)) * sign;
+  });
+}
+
+function renderListHeader() {
+  listHeaderEl.innerHTML = "";
+  LIST_COLUMNS.forEach((column) => {
+    const active = listSort && listSort.key === column.key;
+    const caret = active ? (listSort.dir === "asc" ? "▲" : "▼") : "";
+    const cell = document.createElement("div");
+    cell.className = "list-header-cell";
+    cell.innerHTML = `${column.label}<span class="list-sort-caret">${caret}</span>`;
+    cell.addEventListener("click", () => {
+      listSort = active ? { key: column.key, dir: listSort.dir === "asc" ? "desc" : "asc" } : { key: column.key, dir: "asc" };
+      renderListHeader();
+      renderListView(lastListReports);
+    });
+    listHeaderEl.appendChild(cell);
+  });
+}
+renderListHeader();
+
 // Flat table matching the rack/topology views' visual language: a
 // bordered panel, one row per device, name-dot + status pill both from
 // the same classifyDevice() call used everywhere else so this view can
 // never disagree with the others about a device's state.
 function renderListView(reports) {
+  lastListReports = reports;
   listRowsEl.innerHTML = "";
-  reports.forEach((report) => {
+  sortedReports(reports).forEach((report) => {
     const classification = classifyDevice(report);
     const typeLabel = (report.type || "").replace(/_/g, " ").toUpperCase();
 
@@ -1034,6 +1139,7 @@ function renderListView(reports) {
       </div>
       <div class="list-row-cell">${report.host}</div>
       <div class="list-row-cell">${typeLabel}</div>
+      <div class="list-row-cell">${fixtureLocation(report).rackId}</div>
       <div class="list-row-cell">${formatLatency(report.latency_ms)}</div>
       <div class="list-row-cell">${formatLastChecked(report.last_checked)}</div>
       <div><span class="status-pill ${classification}">${CLASSIFICATION_LABEL[classification]}</span></div>
@@ -1325,6 +1431,33 @@ async function pollTopology() {
 
 pollTopology();
 setInterval(pollTopology, 5000);
+
+// --- topology zoom controls ---
+// A transform: scale() on #topology-graph itself -- the element whose
+// innerHTML renderTopology() replaces on every poll -- so nodes, edges,
+// and their animations all scale together, and the zoom level survives
+// the next 5s re-render untouched (it's the element's own inline style,
+// not something renderTopology() writes).
+
+const TOPO_ZOOM_MIN = 0.5, TOPO_ZOOM_MAX = 2, TOPO_ZOOM_STEP = 0.1;
+let topoZoom = 1;
+const topoZoomLevelEl = document.getElementById("topo-zoom-level");
+
+function setTopoZoom(next) {
+  topoZoom = Math.min(TOPO_ZOOM_MAX, Math.max(TOPO_ZOOM_MIN, next));
+  topologyGraphEl.style.transform = `scale(${topoZoom})`;
+  topoZoomLevelEl.textContent = `${Math.round(topoZoom * 100)}%`;
+}
+
+document.getElementById("topo-zoom-in").addEventListener("click", () => setTopoZoom(topoZoom + TOPO_ZOOM_STEP));
+document.getElementById("topo-zoom-out").addEventListener("click", () => setTopoZoom(topoZoom - TOPO_ZOOM_STEP));
+
+// Scroll wheel over the canvas zooms too -- prevented from also scrolling
+// the (non-scrolling) page underneath.
+topologyEl.addEventListener("wheel", (event) => {
+  event.preventDefault();
+  setTopoZoom(topoZoom + (event.deltaY < 0 ? TOPO_ZOOM_STEP : -TOPO_ZOOM_STEP));
+}, { passive: false });
 
 // --- click handling / side panel ---
 
